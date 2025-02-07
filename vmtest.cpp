@@ -4,9 +4,9 @@ using namespace Scheme;
 
 int main(int argc, char **argv)
 {
-  VM* vm = VM::newVM();
+  VM vm;
 
-  Sgcvar1(expr);
+  GCVar expr(&vm);
 
   try
   {
@@ -14,8 +14,8 @@ int main(int argc, char **argv)
     String in;
     if (getline(std::cin, in))
     {
-      Lexer lex(vm, in);
-      lex.readOne(vobj(expr));
+      Lexer lex(&vm, in);
+      lex.readOne(expr.obj());
       // goto loop;
     }
   }
@@ -24,8 +24,7 @@ int main(int argc, char **argv)
     std::cout << exception << std::endl;
   }
 
-  GC(vm)->fullgc();
-  VM::delVM(vm);
+  GC(&vm)->fullgc();
 
   std::cout << std::endl << "pause";
   String input;

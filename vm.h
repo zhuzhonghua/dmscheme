@@ -375,6 +375,8 @@ public:
     return *this;
   }
 
+  ValueT* obj() { return object; }
+
   ~GCVar();
 
   ValueT* object;
@@ -608,11 +610,8 @@ public:
 public:
   void debt(long size) { debtbytes = size; }
   long debt() { return debtbytes; }
-  long gettotalbytes() { return selfbytes + debtbytes; }
-  void setselfbytes(int s) { selfbytes = s; }
   //
   long debtbytes;
-  long selfbytes;
 protected:
   bool markgray();
 
@@ -627,7 +626,6 @@ protected:
     graylstLast = graylst = NULL;
     touchf = NULL;
     debtbytes = 0;
-    selfbytes = 0;
   }
 protected:
   VM* vm;
@@ -779,9 +777,8 @@ protected:
 
 class VM {
 public:
-  static VM* newVM() { return newVM(salloc); }
-  static VM* newVM(ScmAlloc p);
-  static void delVM(VM* v);
+  VM(ScmAlloc a);
+  VM():VM(salloc) {}
 
   void regCFunction(const char* name, CFunction f);
 protected:
@@ -858,7 +855,6 @@ public:
   void makeseed();
   int seed;
 protected:
-  VM(ScmAlloc a);
   void init();
 protected:
   uint weakIdx;

@@ -1651,22 +1651,6 @@ void VM::makeseed()
   seed = Util::hash(buff, p, h);
 }
 
-VM* VM::newVM(ScmAlloc salocp)
-{
-  VM* vm = new(salocp(NULL, sizeof(VM))) VM(salocp);
-  vm->getgc()->setselfbytes(sizeof(VM));
-
-  vm->init();
-
-  return vm;
-}
-
-void VM::delVM(VM* v)
-{
-  ScmAlloc frealloc = v->frealloc;
-  frealloc(v, 0);
-}
-
 void VM::regCFunction(const char* name, CFunction f)
 {
   int n = strlen(name);
@@ -1700,6 +1684,8 @@ VM::VM(ScmAlloc a):
   makeseed();
 
   frames = NULL;
+
+  init();
 }
 
 void* VM::realloc(void* ptr, size_t osize, size_t nsize)
