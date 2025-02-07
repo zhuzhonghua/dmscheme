@@ -667,17 +667,17 @@ void Instruction::saverestore(int sr)
   Sgcvar2(vrestore, vsave);
 
   vrestore = Sr1(RestoreReg, sr);
-  vrestore = vm->list(vobj(vrestore));
+  vrestore = vm->list(vrestore.obj());
 
-  ValueT* vr = vobj(vrestore);
-  endwithpair(pairref(vobj(vrestore)));
+  ValueT* vr = vrestore.obj();
+  endwithpair(pairref(vrestore.obj()));
 
   vsave = Sr1(SaveReg, sr);
 
   ValueT exprv;
   setpair(&exprv, expr);
 
-  setexpr(Sconsref(vobj(vsave), &exprv));
+  setexpr(Sconsref(vsave.obj(), &exprv));
 }
 
 void Instruction::endwithpair(PairPtr p2)
@@ -847,9 +847,9 @@ void SCompiler::makedef(InstPtr inst, int targetr, VarsPtr vars, JumpToFix* jf, 
 
     // (lambda (b c) ...)
     vsymval = Sconsref(symvpair->cdr(), pair->cdr());
-    vsymval = Sconsref(Sklambda(), vobj(vsymval));
+    vsymval = Sconsref(Sklambda(), vsymval.obj());
 
-    symval = vobj(vsymval);
+    symval = vsymval.obj();
   }
 
   // (define a 2)
@@ -878,9 +878,9 @@ void SCompiler::makedef(InstPtr inst, int targetr, VarsPtr vars, JumpToFix* jf, 
   compile(inst, rVal, vars, jf, symval, Snext);
 
   //  vdef = Sr1(DefVar, offset);
-  vdef = vm->list(vobj(vdef));
+  vdef = vm->list(vdef.obj());
   Sinstvar(definst);
-  definst.set(regv(rEnv)|regv(rVal), regv(targetr), pairref(vobj(vdef)));
+  definst.set(regv(rEnv)|regv(rVal), regv(targetr), pairref(vdef.obj()));
 
   inst->preserving(regv(rEnv), &definst);
 }
@@ -916,7 +916,7 @@ void SCompiler::makeset(InstPtr inst, int targetr, VarsPtr vars, JumpToFix* jf, 
   else
     vset = Sr2(SetVarLocal, offset, targetr);
 
-  vset = vm->list(vobj(vset));
+  vset = vm->list(vset.obj());
 
   pair = Spairref(pair->cdr());
   Assert(pair->cdr()->isnull(), "bad set! form");
@@ -924,7 +924,7 @@ void SCompiler::makeset(InstPtr inst, int targetr, VarsPtr vars, JumpToFix* jf, 
   compile(inst, rVal, vars, jf, pair->car(), Snext);
 
   Sinstvar(setinst);
-  setinst.set(regv(rEnv)|regv(rVal), regv(targetr), pairref(vobj(vset)));
+  setinst.set(regv(rEnv)|regv(rVal), regv(targetr), pairref(vset.obj()));
 
   inst->preserving(regv(rEnv), &setinst);
 }
@@ -956,11 +956,11 @@ void SCompiler::makeiftest(InstPtr inst, int targetr, VarsPtr vars, JumpToFix* j
 
   Sgcvar1(ifjmp);
   ifjmp = Sr1(IfFalseJump, &branchfalse);
-  jf->toFix(labeli(&branchfalse), vobj(ifjmp)->ref());
-  ifjmp = vm->list(vobj(ifjmp));
+  jf->toFix(labeli(&branchfalse), ifjmp.obj()->ref());
+  ifjmp = vm->list(ifjmp.obj());
 
   Sinstvar(ifjmpinst);
-  ifjmpinst.set(regv(rVal), rvEmpty, pairref(vobj(ifjmp)));
+  ifjmpinst.set(regv(rVal), rvEmpty, pairref(ifjmp.obj()));
 
   ValueT* conseqlink = isnext(link) ? &afterif : link;
 
@@ -1010,10 +1010,10 @@ void SCompiler::makelambda(InstPtr inst, int targetr, VarsPtr vars, JumpToFix* j
   ValueT lambdaend; setlabel(&lambdaend);
 
   lambda = Sr3(LambdaObj, targetr, newvars, &lambdaentry);
-  jf->toFix(labeli(&lambdaentry), vobj(lambda)->ref());
-  lambda = vm->list(vobj(lambda));
+  jf->toFix(labeli(&lambdaentry), lambda.obj()->ref());
+  lambda = vm->list(lambda.obj());
 
-  inst->set(regv(rEnv), regv(targetr), pairref(vobj(lambda)));
+  inst->set(regv(rEnv), regv(targetr), pairref(lambda.obj()));
 
   ValueT* llink = isnext(link) ? &lambdaend : link;
 
@@ -1037,7 +1037,7 @@ void SCompiler::constructarg0(InstPtr inst, InstArr* iarr, int index)
   varg = vm->list(&carg);
 
   Sinstvar(arginst);
-  arginst.set(regv(rVal)|regv(rArgl), regv(rArgl), pairref(vobj(varg)));
+  arginst.set(regv(rVal)|regv(rArgl), regv(rArgl), pairref(varg.obj()));
 
   *inst = iarr->geti(index)->preserving(regv(rArgl), &arginst);
 
@@ -1067,7 +1067,7 @@ void SCompiler::constructarg(InstPtr inst, VarsPtr vars, JumpToFix* jf, ValueT* 
     Sgcvar1(assign);
 
     assign = vm->list(&vassignargnull);
-    inst->set(rvEmpty, regv(rArgl), pairref(vobj(assign)));
+    inst->set(rvEmpty, regv(rArgl), pairref(assign.obj()));
   }
 
   else
@@ -1091,7 +1091,7 @@ void SCompiler::constructarg(InstPtr inst, VarsPtr vars, JumpToFix* jf, ValueT* 
     first = vm->list(&carg);
 
     Sinstvar(initinst);
-    initinst.set(regv(rVal), regv(rArgl), pairref(vobj(first)));
+    initinst.set(regv(rVal), regv(rArgl), pairref(first.obj()));
 
     int last = count - 1;
     *inst = iarr.geti(last)->append(&initinst);
@@ -1120,7 +1120,7 @@ void SCompiler::compilelambdaappl(InstPtr inst, JumpToFix* jf, int targetr, Valu
     AssignLabel* jtf;
     assign = jtf = Sr2(AssignLabel, rContinue, link);
 
-    inst->set(regv(rProc), allreg, vm->list(vobj(assign), &vjumpproc));
+    inst->set(regv(rProc), allreg, vm->list(assign.obj(), &vjumpproc));
 
     jf->toFix(Slabeli(link), jtf);
   }
@@ -1137,11 +1137,11 @@ void SCompiler::compilelambdaappl(InstPtr inst, JumpToFix* jf, int targetr, Valu
     jmp = jtf2 = Sr1(JumpLabel, link);
     assignreg = Sr2(AssignReg, targetr, rVal);
 
-    PairPtr expr = vm->list(vobj(assign),
+    PairPtr expr = vm->list(assign.obj(),
                             &vjumpproc,
                             &branchreturn,
-                            vobj(assignreg),
-                            vobj(jmp));
+                            assignreg.obj(),
+                            jmp.obj());
     Sgcreserve(expr);
 
     jf->toFix(labeli(&branchreturn), jtf1);
@@ -1213,8 +1213,8 @@ void SCompiler::compilepair(InstPtr inst, int targetr, VarsPtr vars, JumpToFix* 
     Sgcvar1(assign);
 
     assign = Sr2(Assign, targetr, pair->cdr());
-    assign = vm->list(vobj(assign));
-    inst->set(rvEmpty, regv(targetr), pairref(vobj(assign)));
+    assign = vm->list(assign.obj());
+    inst->set(rvEmpty, regv(targetr), pairref(assign.obj()));
 
     endwithlink(jf, inst, link);
   }
@@ -1285,9 +1285,9 @@ PairPtr SCompiler::extractlabel(JumpToFix* jf, PairPtr expr)
     inst = extractlabel(jf, pairref(expr->cdr()));
     int label = labeli(first);
 
-    jf->fix(label, pairref(vobj(inst)));
+    jf->fix(label, pairref(inst.obj()));
 
-    return pairref(vobj(inst));
+    return pairref(inst.obj());
   }
 
   else
@@ -1545,7 +1545,7 @@ void VM::eval(ValueT* out, PairPtr expr)
     if (frames != NULL)
       setpair(&frm, frames);
 
-    frames = Sconsref(vobj(tmp), &frm);
+    frames = Sconsref(tmp.obj(), &frm);
     break;
   }
   case CMD_RESTORE_REG: {
@@ -2239,11 +2239,11 @@ void Lexer::readListT(ValueT* v)
   while (aheadToken != TOKEN_RIGHT_PAREN &&
          aheadToken != TOKEN_RIGHT_SQUARE_PAREN)
   {
-    vobj(sval)->reset();
+    sval.obj()->reset();
 
-    readValueT(vobj(sval));
+    readValueT(sval.obj());
 
-    if (Sisnull(vobj(sval)))
+    if (Sisnull(sval.obj()))
     {
       if (aheadToken == TOKEN_DOT)
       {
@@ -2253,7 +2253,7 @@ void Lexer::readListT(ValueT* v)
 
         match(TOKEN_DOT);
 
-        readValueT(vobj(sval));
+        readValueT(sval.obj());
 
         Assert(aheadToken == TOKEN_RIGHT_SQUARE_PAREN ||
                aheadToken == TOKEN_RIGHT_PAREN,
@@ -2262,7 +2262,7 @@ void Lexer::readListT(ValueT* v)
       }
     }
 
-    PairPtr tmp = vm->list(vobj(sval));
+    PairPtr tmp = vm->list(sval.obj());
 
     if (NULL == last)
     {
@@ -2279,7 +2279,7 @@ void Lexer::readListT(ValueT* v)
     }
   }
 
-  if (dot) last->cdr(vobj(sval));
+  if (dot) last->cdr(sval.obj());
 }
 
 void Lexer::readValueT(ValueT* v)
@@ -2300,29 +2300,29 @@ void Lexer::readValueT(ValueT* v)
 	case TOKEN_QUOTE: {
     match(TOKEN_QUOTE);
     Sgcvar1(v2);
-    readValueT(vobj(v2));
-    setpair(v, Squote_ref(vobj(v2)));
+    readValueT(v2.obj());
+    setpair(v, Squote_ref(v2.obj()));
     break;
   }
 	case TOKEN_UNQUOTE: {
     match(TOKEN_UNQUOTE);
     Sgcvar1(v2);
-    readValueT(vobj(v2));
-    setpair(v, Su_quote_ref(vobj(v2)));
+    readValueT(v2.obj());
+    setpair(v, Su_quote_ref(v2.obj()));
     break;
   }
 	case TOKEN_QUASIQUOTE: {
     match(TOKEN_QUASIQUOTE);
     Sgcvar1(v2);
-    readValueT(vobj(v2));
-    setpair(v, Sq_quote_ref(vobj(v2)));
+    readValueT(v2.obj());
+    setpair(v, Sq_quote_ref(v2.obj()));
     break;
   }
 	case TOKEN_UNQUOTE_SPLICING: {
     match(TOKEN_UNQUOTE_SPLICING);
     Sgcvar1(v2);
-    readValueT(vobj(v2));
-    setpair(v, Su_quote_s_ref(vobj(v2)));
+    readValueT(v2.obj());
+    setpair(v, Su_quote_s_ref(v2.obj()));
     break;
   }
 	case TOKEN_LEFT_PAREN:

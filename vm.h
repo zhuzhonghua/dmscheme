@@ -361,8 +361,6 @@ protected:
 #define Sgcreserve(ref) gcreserve(vm, ref)
 #define gcreserve(vm, ref) GCVar v ## ref ## __LINE__ (vm, ref);
 
-#define vobj(VT) ((VT).object)
-
 class GCVar {
 public:
   GCVar(VM* v);
@@ -972,7 +970,7 @@ enum ExeCmdEnum {
 
 
 #define setinst1v(inst, r, m, v) \
-  (v = vm->list(vobj(v)), (inst)->set(r, m, pairref(vobj(v))))
+  (v = vm->list(v.obj()), (inst)->set(r, m, pairref(v.obj())))
 
 class Instruction {
 public:
