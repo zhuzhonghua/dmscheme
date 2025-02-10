@@ -1603,9 +1603,8 @@ void VM::eval(ValueT* out, PairPtr expr)
   }
   case CMD_APPLY_PRIM: {
     CFunction f = regs[rProc].cfunc();
-    ValueT out;
-    (*f)(&out, &regs[rArgl]);
-    regs[applyprimptr(cmd)->targetr] = out;
+    ValueT* out = &regs[applyprimptr(cmd)->targetr];
+    (*f)(this, out, &regs[rArgl]);
     break;
   }
   case CMD_CALL_APP: {

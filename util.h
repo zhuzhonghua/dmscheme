@@ -25,6 +25,7 @@ typedef unsigned int uint;
 typedef unsigned short ushort;
 typedef unsigned char byte;
 
+typedef long scm_int;
 
 class Util {
 public:

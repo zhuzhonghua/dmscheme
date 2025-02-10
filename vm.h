@@ -46,8 +46,8 @@ class InstArr;
 #define Sr4(TYPE, a, b, c, d) vm->newobj<TYPE>(a, b, c, d)
 
 union BasicNum {
-  long i;
-  double dbl;
+  scm_int i; // integer
+  double r; // real
 };
 
 union ValueU {
@@ -60,7 +60,7 @@ enum ValueTEnum {
   VT_UNDEFINED, // internal use
   VT_NULL, // nil or null
   VT_NUM_INTEGER,
-  VT_NUM_RATIO,
+  VT_NUM_REAL,
 
   VT_TRUE,
   VT_FALSE,
@@ -75,8 +75,10 @@ enum ValueTEnum {
 
   /* all type below must be gcref type */
   VT_REF,
-  VT_NUM_REAL,
-  VT_NUM_COMPLEX,
+
+  VT_REF_NUM_RATIO,
+  VT_REF_NUM_COMPLEX,
+
   VT_REF_STR,
   VT_REF_SYM,
   VT_REF_PAIR,
@@ -108,6 +110,9 @@ enum ValueTEnum {
       (VT)->v.p = pe;                           \
     }}
 
+/* Type Ref */
+#define settyperef(VT, tp, e) ((VT)->t = tp, (VT)->v.p = e)
+
 /* Ref */
 #define setref(VT, e)                           \
   { RefPtr pe = e;                              \
@@ -124,16 +129,19 @@ enum ValueTEnum {
 #define numi(VT) (VT)->v.num.i
 #define isnumi(VT) (VT)->t == VT_NUM_INTEGER
 
-#define setnumratio(VT, e) ((VT)->t = VT_NUM_RATIO, (VT)->v.num.dbl = e)
-#define numratio(VT) (VT)->v.num.dbl
-#define isnumratio(VT) (VT)->t == VT_NUM_RATIO
-
+#define setnumreal(VT, e) ((VT)->t = VT_NUM_REAL, (VT)->v.num.dbl = e)
+#define numreal(VT) (VT)->v.num.dbl
 #define isnumreal(VT) (VT)->t == VT_NUM_REAL
-#define isnumcomplex(VT) (VT)->t == VT_NUM_COMPLEX
 
-#define setnum(VT, t, e) ((VT)->t = t, (VT)->v.num = e)
-#define tnum(VT) (VT)->num()
-#define Snum(VT) checkexp(isnum(VT), tnum(VT), NumVal)
+#define setnumcomplex(VT, e) settyperef(VT, VT_REF_NUM_COMPLEX, e)
+#define isnumcomplex(VT) (VT)->t == VT_REF_NUM_COMPLEX
+#define numcomplexreal(VT) numcomplexref(VT)->real
+#define numcompleximag(VT) numcomplexref(VT)->imag
+
+#define setnumratio(VT, e) settyperef(VT, VT_REF_NUM_RATIO, e)
+#define isnumratio(VT) (VT)->t == VT_REF_NUM_RATIO
+#define numrationu(VT) numratioref(VT)->numerator
+#define numratiode(VT) numratioref(VT)->denominator
 
 /* Label */
 #define islabel(VT) ((VT)->t == VT_LABEL)
@@ -168,7 +176,6 @@ struct ValueT {
   byte gettype() { return t; }
 
   RefPtr ref() { return v.p; }
-  BasicNum num() { return v.num; }
   CFunction cfunc() { return v.f; }
 
   ValueT() { reset(); }
@@ -261,14 +268,20 @@ struct RefObject {
   byte marked;
 };
 
-struct NumRealObj : public RefObject {
-  GetSize(NumRealObj)
+#define numratioref(VT) (NumRatioObj*)(VT)->ref()
 
-  long numerator;
-  long denominator;
+struct NumRatioObj : public RefObject {
+  NumRatioObj(scm_int n, scm_int d): numerator(n), denominator(d) {}
+  GetSize(NumRatioObj)
+
+  scm_int numerator;
+  scm_int denominator;
 };
 
+#define numcomplexref(VT) (NumComplexObj*)(VT)->ref()
+
 struct NumComplexObj : public RefObject {
+  NumComplexObj(double r, double i): real(r), imag(i) {}
   GetSize(NumComplexObj)
 
   double real;
@@ -683,8 +696,6 @@ enum Reg {
 
 #define allreg ((1 << rMax) - 1)
 #define regv(r) (1 << (r))
-
-#define vjtf(VT) (JumpToFix*)vobj(VT)
 
 struct JumpToFix {
   JumpToFix(VM* v, int n): vm(v) {
