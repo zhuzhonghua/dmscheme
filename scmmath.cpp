@@ -245,6 +245,11 @@ void ScmMath::init(VM* vm)
   regc("lcm", ScmMath, lcm);
   regc("numerator", ScmMath, numerator);
   regc("denominator", ScmMath, denominator);
+  regc("number?", ScmMath, numberp);
+  regc("complex?", ScmMath, complexp);
+  regc("real?", ScmMath, realp);
+  regc("rational?", ScmMath, rationalp);
+  regc("integer?", ScmMath, integerp);
 }
 
 void ScmMath::numerator(VM* vm, ValueT* out, ValueT* args)
@@ -253,6 +258,8 @@ void ScmMath::numerator(VM* vm, ValueT* out, ValueT* args)
   ValueT* n = pair->car();
 
   Assert(isnumratio(n), "numerator not a ratio %d", typet(n));
+  Assert(Sisnull(pair->cdr()), "numerator need only one arg");
+
   setnumi(out, numrationu(n));
 }
 
@@ -262,6 +269,8 @@ void ScmMath::denominator(VM* vm, ValueT* out, ValueT* args)
   ValueT* n = pair->car();
 
   Assert(isnumratio(n), "denominator not a ratio %d", typet(n));
+  Assert(Sisnull(pair->cdr()), "denominator need only one arg");
+
   setnumi(out, numratiode(n));
 }
 
@@ -428,5 +437,74 @@ void ScmMath::lcm(VM* vm, ValueT* out, ValueT* args)
   }
 }
 
+void ScmMath::numberp(VM* vm, ValueT* out, ValueT* args)
+{
+  PairPtr pair = Spairref(args);
+  ValueT* n = pair->car();
+
+  Assert(Sisnull(pair->cdr()), "numberp need only one arg");
+
+  if (isnumber(n))
+    *out = Strueref;
+
+  else
+    *out = Sfalseref;
+}
+
+void ScmMath::complexp(VM* vm, ValueT* out, ValueT* args)
+{
+  PairPtr pair = Spairref(args);
+  ValueT* n = pair->car();
+
+  Assert(Sisnull(pair->cdr()), "complexp need only one arg");
+
+  if (isnumcomplex(n))
+    *out = Strueref;
+
+  else
+    *out = Sfalseref;
+}
+
+void ScmMath::realp(VM* vm, ValueT* out, ValueT* args)
+{
+  PairPtr pair = Spairref(args);
+  ValueT* n = pair->car();
+
+  Assert(Sisnull(pair->cdr()), "realp need only one arg");
+
+  if (isnumreal(n))
+    *out = Strueref;
+
+  else
+    *out = Sfalseref;
+}
+
+void ScmMath::rationalp(VM* vm, ValueT* out, ValueT* args)
+{
+  PairPtr pair = Spairref(args);
+  ValueT* n = pair->car();
+
+  Assert(Sisnull(pair->cdr()), "rationalp need only one arg");
+
+  if (isnumratio(n))
+    *out = Strueref;
+
+  else
+    *out = Sfalseref;
+}
+
+void ScmMath::integerp(VM* vm, ValueT* out, ValueT* args)
+{
+  PairPtr pair = Spairref(args);
+  ValueT* n = pair->car();
+
+  Assert(Sisnull(pair->cdr()), "integerp need only one arg");
+
+  if (isnumi(n))
+    *out = Strueref;
+
+  else
+    *out = Sfalseref;
+}
 
 };
