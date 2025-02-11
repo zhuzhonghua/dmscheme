@@ -470,7 +470,7 @@ SymPtr Interns::intern(const char* str, int n)
   SymPtr b = (SymPtr)Const(vm)->getconst(str);
   if (b != NULL) return b;
 
-  int h = Util::hash(str, n, vm->seed);
+  uint h = Util::hash(str, n, vm->seed);
   int idx = h % blistlen;
   b = bucketlist[idx];
   while (b != NULL)

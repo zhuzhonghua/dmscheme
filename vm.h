@@ -129,19 +129,9 @@ enum ValueTEnum {
 #define numi(VT) (VT)->v.num.i
 #define isnumi(VT) (VT)->t == VT_NUM_INTEGER
 
-#define setnumreal(VT, e) ((VT)->t = VT_NUM_REAL, (VT)->v.num.dbl = e)
-#define numreal(VT) (VT)->v.num.dbl
+#define setnumreal(VT, e) ((VT)->t = VT_NUM_REAL, (VT)->v.num.r = e)
+#define numreal(VT) (VT)->v.num.r
 #define isnumreal(VT) (VT)->t == VT_NUM_REAL
-
-#define setnumcomplex(VT, e) settyperef(VT, VT_REF_NUM_COMPLEX, e)
-#define isnumcomplex(VT) (VT)->t == VT_REF_NUM_COMPLEX
-#define numcomplexreal(VT) numcomplexref(VT)->real
-#define numcompleximag(VT) numcomplexref(VT)->imag
-
-#define setnumratio(VT, e) settyperef(VT, VT_REF_NUM_RATIO, e)
-#define isnumratio(VT) (VT)->t == VT_REF_NUM_RATIO
-#define numrationu(VT) numratioref(VT)->numerator
-#define numratiode(VT) numratioref(VT)->denominator
 
 /* Label */
 #define islabel(VT) ((VT)->t == VT_LABEL)
@@ -268,7 +258,12 @@ struct RefObject {
   byte marked;
 };
 
-#define numratioref(VT) (NumRatioObj*)(VT)->ref()
+#define numratioref(VT) ((NumRatioObj*)(VT)->ref())
+
+#define setnumratio(VT, e) settyperef(VT, VT_REF_NUM_RATIO, e)
+#define isnumratio(VT) (VT)->t == VT_REF_NUM_RATIO
+#define numrationu(VT) numratioref(VT)->numerator
+#define numratiode(VT) numratioref(VT)->denominator
 
 struct NumRatioObj : public RefObject {
   NumRatioObj(scm_int n, scm_int d): numerator(n), denominator(d) {}
@@ -278,7 +273,12 @@ struct NumRatioObj : public RefObject {
   scm_int denominator;
 };
 
-#define numcomplexref(VT) (NumComplexObj*)(VT)->ref()
+#define numcomplexref(VT) ((NumComplexObj*)(VT)->ref())
+
+#define setnumcomplex(VT, e) settyperef(VT, VT_REF_NUM_COMPLEX, e)
+#define isnumcomplex(VT) (VT)->t == VT_REF_NUM_COMPLEX
+#define numcomplexreal(VT) numcomplexref(VT)->real
+#define numcompleximag(VT) numcomplexref(VT)->imag
 
 struct NumComplexObj : public RefObject {
   NumComplexObj(double r, double i): real(r), imag(i) {}

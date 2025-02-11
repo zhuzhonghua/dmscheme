@@ -23,6 +23,23 @@ static scm_int Slcm(scm_int a, scm_int b)
   return std::abs(Sgcd(a, b) * a * b);
 }
 
+static void simplifyratio(ValueT* v)
+{
+  // assert isnumratio()
+  if (numratiode(v) == 1)
+    setnumi(v, numrationu(v));
+
+  else if (numratiode(v) == -1)
+    setnumi(v, -1 * numrationu(v));
+}
+
+static void simplifycomplex(ValueT* v)
+{
+  // assert isnumcomplex()
+  if (Util::isFloatEqual(0.0, numcompleximag(v)))
+    setnumreal(v, numcomplexreal(v));
+}
+
 static void numuptoratio(VM* vm, ValueT* a)
 {
   Assert(isnumi(a), "wrong up type %d", typet(a));
@@ -40,7 +57,7 @@ static void numuptoreal(ValueT* a)
 
   else if (isnumratio(a))
   {
-    NumRatioObj* ratio = ratioref(a);
+    NumRatioObj* ratio = numratioref(a);
     setnumreal(a, ratio->numerator / (double)ratio->denominator);
   }
 
@@ -82,29 +99,29 @@ static void numsynctype(VM* vm, ValueT* a1, ValueT* a2, ValueT* a1p, ValueT* a2p
   switch(typet(a1)) {
   case VT_NUM_INTEGER:
     switch(typet(a2)) {
-    case VT_NUM_RATIO: numuptoratio(vm, a1); break;
+    case VT_REF_NUM_RATIO: numuptoratio(vm, a1); break;
     case VT_NUM_REAL: numuptoreal(a1); break;
-    case VT_NUM_COMPLEX: numtocomplex(vm, a1); break;
+    case VT_REF_NUM_COMPLEX: numtocomplex(vm, a1); break;
     }
     break;
-  case VT_NUM_RATIO:
+  case VT_REF_NUM_RATIO:
     switch(typet(a2)) {
     case VT_NUM_INTEGER: numuptoratio(vm, a2); break;
     case VT_NUM_REAL: numuptoreal(a1); break;
-    case VT_NUM_COMPLEX: numtocomplex(vm, a1); break;
+    case VT_REF_NUM_COMPLEX: numtocomplex(vm, a1); break;
     }
     break;
   case VT_NUM_REAL:
     switch(typet(a2)) {
     case VT_NUM_INTEGER: numuptoreal(a2); break;
-    case VT_NUM_RATIO: numuptoreal(a2); break;
-    case VT_NUM_COMPLEX: numtocomplex(vm, a1); break;
+    case VT_REF_NUM_RATIO: numuptoreal(a2); break;
+    case VT_REF_NUM_COMPLEX: numtocomplex(vm, a1); break;
     }
     break;
-  case VT_NUM_COMPLEX:
+  case VT_REF_NUM_COMPLEX:
     switch(typet(a2)) {
     case VT_NUM_INTEGER: numtocomplex(vm, a2); break;
-    case VT_NUM_RATIO: numtocomplex(vm, a2); break;
+    case VT_REF_NUM_RATIO: numtocomplex(vm, a2); break;
     case VT_NUM_REAL: numtocomplex(vm, a2); break;
     }
     break;
@@ -114,27 +131,29 @@ static void numsynctype(VM* vm, ValueT* a1, ValueT* a2, ValueT* a1p, ValueT* a2p
 static void numadd(VM* vm, ValueT* out, ValueT* a1, ValueT* a2)
 {
   GCVar a1p(vm), a2p(vm);
-  numsynctype(a1p.obj(), a2p.obj(), a1, a2);
+  numsynctype(vm, a1p.obj(), a2p.obj(), a1, a2);
   a1 = a1p.obj(), a2 = a2p.obj();
 
   switch(typet(a1)) {
   case VT_NUM_INTEGER:
     setnumi(out, numi(a1) + numi(a2));
     break;
-  case VT_NUM_RATIO:{
+  case VT_REF_NUM_RATIO:{
     scm_int de = Slcm(numratiode(a1), numratiode(a2));
     scm_int dp1 = de / numratiode(a1);
     scm_int dp2 = de / numratiode(a2);
-    setnumratio(a, Sr2(NumRatioObj, numrationu(a1) * dp1 + numrationu(a2) * dp2, de));
+    setnumratio(out, Sr2(NumRatioObj, numrationu(a1) * dp1 + numrationu(a2) * dp2, de));
+    simplifyratio(out);
     break;
   }
   case VT_NUM_REAL:
     setnumreal(out, numreal(a1) + numreal(a2));
     break;
-  case VT_NUM_COMPLEX:
+  case VT_REF_NUM_COMPLEX:
     setnumcomplex(out, Sr2(NumComplexObj,
                            numcomplexreal(a1) + numcomplexreal(a2),
                            numcompleximag(a1) + numcompleximag(a2)));
+    simplifycomplex(out);
     break;
   }
 }
@@ -142,27 +161,29 @@ static void numadd(VM* vm, ValueT* out, ValueT* a1, ValueT* a2)
 static void numsubtract(VM* vm, ValueT* out, ValueT* a1, ValueT* a2)
 {
   GCVar a1p(vm), a2p(vm);
-  numsynctype(a1p.obj(), a2p.obj(), a1, a2);
+  numsynctype(vm, a1p.obj(), a2p.obj(), a1, a2);
   a1 = a1p.obj(), a2 = a2p.obj();
 
   switch(typet(a1)) {
   case VT_NUM_INTEGER:
     setnumi(out, numi(a1) - numi(a2));
     break;
-  case VT_NUM_RATIO:{
+  case VT_REF_NUM_RATIO:{
     scm_int de = Slcm(numratiode(a1), numratiode(a2));
     scm_int dp1 = de / numratiode(a1);
     scm_int dp2 = de / numratiode(a2);
-    setnumratio(a, Sr2(NumRatioObj, numrationu(a1) * dp1 - numrationu(a2) * dp2, de));
+    setnumratio(out, Sr2(NumRatioObj, numrationu(a1) * dp1 - numrationu(a2) * dp2, de));
+    simplifyratio(out);
     break;
   }
   case VT_NUM_REAL:
     setnumreal(out, numreal(a1) - numreal(a2));
     break;
-  case VT_NUM_COMPLEX:
+  case VT_REF_NUM_COMPLEX:
     setnumcomplex(out, Sr2(NumComplexObj,
                            numcomplexreal(a1) - numcomplexreal(a2),
                            numcompleximag(a1) - numcompleximag(a2)));
+    simplifycomplex(out);
     break;
   }
 }
@@ -170,25 +191,27 @@ static void numsubtract(VM* vm, ValueT* out, ValueT* a1, ValueT* a2)
 static void nummultiply(VM* vm, ValueT* out, ValueT* a1, ValueT* a2)
 {
   GCVar a1p(vm), a2p(vm);
-  numsynctype(a1p.obj(), a2p.obj(), a1, a2);
+  numsynctype(vm, a1p.obj(), a2p.obj(), a1, a2);
   a1 = a1p.obj(), a2 = a2p.obj();
 
   switch(typet(a1)) {
   case VT_NUM_INTEGER:
     setnumi(out, numi(a1) * numi(a2));
     break;
-  case VT_NUM_RATIO:
-    setnumratio(a, Sr2(NumRatioObj,
+  case VT_REF_NUM_RATIO:
+    setnumratio(out, Sr2(NumRatioObj,
                        numrationu(a1) * numrationu(a2) ,
                        numratiode(a1) * numratiode(a2)));
+    simplifyratio(out);
     break;
   case VT_NUM_REAL:
     setnumreal(out, numreal(a1) * numreal(a2));
     break;
-  case VT_NUM_COMPLEX: {
+  case VT_REF_NUM_COMPLEX: {
     double re1 = numcomplexreal(a1), re2 = numcomplexreal(a2);
     double ig1 = numcompleximag(a1), ig2 = numcompleximag(a2);
     setnumcomplex(out, Sr2(NumComplexObj, (re1 * re2 - ig1 * ig2), re1 * ig2 + ig1 * re2));
+    simplifycomplex(out);
     break;
   }
   }
@@ -198,7 +221,7 @@ static void nummultiply(VM* vm, ValueT* out, ValueT* a1, ValueT* a2)
 static void numdivide(VM* vm, ValueT* out, ValueT* a1, ValueT* a2)
 {
   GCVar a1p(vm), a2p(vm);
-  numsynctype(a1p.obj(), a2p.obj(), a1, a2);
+  numsynctype(vm, a1p.obj(), a2p.obj(), a1, a2);
   a1 = a1p.obj(), a2 = a2p.obj();
 
   switch(typet(a1)) {
@@ -209,25 +232,28 @@ static void numdivide(VM* vm, ValueT* out, ValueT* a1, ValueT* a2)
     else
     {
       scm_int gd = Sgcd(numi(a1), numi(a2));
-      setnumratio(a, Sr2(NumRatioObj, numi(a1) / gd, numi(a2) / gd));
+      setnumratio(out, Sr2(NumRatioObj, numi(a1) / gd, numi(a2) / gd));
+      simplifyratio(out);
     }
     break;
   }
-  case VT_NUM_RATIO:
-    setnumratio(a, Sr2(NumRatioObj,
-                       numrationu(a1) * numratiode(a2) ,
-                       numratiode(a1) * numrationu(a2)));
+  case VT_REF_NUM_RATIO:
+    setnumratio(out, Sr2(NumRatioObj,
+                         numrationu(a1) * numratiode(a2) ,
+                         numratiode(a1) * numrationu(a2)));
+    simplifyratio(out);
     break;
   case VT_NUM_REAL:
     setnumreal(out, numreal(a1) / numreal(a2));
     break;
-  case VT_NUM_COMPLEX: {
+  case VT_REF_NUM_COMPLEX: {
     double re1 = numcomplexreal(a1), re2 = numcomplexreal(a2);
     double ig1 = numcompleximag(a1), ig2 = numcompleximag(a2);
 
     double de = std::sqrt(ig1) + std::sqrt(ig2);
     double realnu = re1 * re2 + ig1 * ig2, imagnu = ig1 * re2 - re1 * ig2;
     setnumcomplex(out, Sr2(NumComplexObj, realnu / de, imagnu / de));
+    simplifycomplex(out);
     break;
   }
   }
@@ -316,7 +342,7 @@ void ScmMath::subtract(VM* vm, ValueT* out, ValueT* args)
     Assert(isnumber(n), "subtract not a number %d", typet(n));
 
     ValueT o2;
-    numsubtract(&o2, out, n);
+    numsubtract(vm, &o2, out, n);
     *out = o2;
   }
 }
@@ -341,7 +367,7 @@ void ScmMath::multiply(VM* vm, ValueT* out, ValueT* args)
       Assert(isnumber(n), "multiply not a number %d", typet(n));
 
       ValueT o2;
-      nummultiply(&o2, out, n);
+      nummultiply(vm, &o2, out, n);
       *out = o2;
     }
   }
@@ -352,11 +378,11 @@ static bool iszero(ValueT* a)
   switch(typet(a)) {
   case VT_NUM_INTEGER:
     return 0 == numi(a);
-  case VT_NUM_RATIO:
-    return Util::isFloatEqual(0.0, numratio(a));
+  case VT_REF_NUM_RATIO:
+    return Util::isFloatEqual(0.0, numrationu(a));
   case VT_NUM_REAL:
     return false;
-  case VT_NUM_COMPLEX:
+  case VT_REF_NUM_COMPLEX:
     return true;
   default:
     Error("something error won't reach here %d", typet(a));
@@ -380,7 +406,7 @@ void ScmMath::divide(VM* vm, ValueT* out, ValueT* args)
     Assert(!iszero(n), "divide cannot be zero");
 
     ValueT o2;
-    numdivide(&o2, out, n);
+    numdivide(vm, &o2, out, n);
     *out = o2;
   }
 }
