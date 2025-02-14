@@ -2,31 +2,26 @@
 
 using namespace Scheme;
 
+void test(VM* vm, const char* stat)
+{
+  Lexer lex(vm, stat);
+
+  Sreservevt(expr);
+  lex.readOne(expr);
+
+  PairPtr exprstat = Compiler(vm)->compile(expr);
+
+  Sreservevt(exprout);
+  vm->eval(exprout, exprstat);
+
+  GC(vm)->fullgc();
+}
+
 int main(int argc, char **argv)
 {
   VM vm;
 
-  GCVar expr(&vm);
+  test(&vm, "(+ 1 2)");
 
-  try
-  {
-    //  loop:
-    String in;
-    if (getline(std::cin, in))
-    {
-      Lexer lex(&vm, in);
-      lex.readOne(expr.obj());
-      // goto loop;
-    }
-  }
-  catch(String &exception)
-  {
-    std::cout << exception << std::endl;
-  }
-
-  GC(&vm)->fullgc();
-
-  std::cout << std::endl << "pause";
-  String input;
-  getline(std::cin, input);
+  return 0;
 }

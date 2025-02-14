@@ -664,20 +664,20 @@ InstPtr Instruction::tack(InstPtr ptr)
 
 void Instruction::saverestore(int sr)
 {
-  Sgcvar2(vrestore, vsave);
+  Sreservevt(vrestore);
 
-  vrestore = Sr1(RestoreReg, sr);
-  vrestore = vm->list(vrestore.obj());
+  *vrestore = Sr1(RestoreReg, sr);
+  *vrestore = vm->list(vrestore);
 
-  ValueT* vr = vrestore.obj();
-  endwithpair(pairref(vrestore.obj()));
+  endwithpair(pairref(vrestore));
 
-  vsave = Sr1(SaveReg, sr);
+  Sreservevt(vsave);
+  *vsave = Sr1(SaveReg, sr);
 
   ValueT exprv;
-  setpair(&exprv, expr);
+  setpair(&exprv, this->expr);
 
-  setexpr(Sconsref(vsave.obj(), &exprv));
+  setexpr(Sconsref(vsave, &exprv));
 }
 
 void Instruction::endwithpair(PairPtr p2)
@@ -713,7 +713,7 @@ void JumpToFix::fix(int label, PairPtr jmp)
   if (rng < size)
   {
     PairPtr pair = arrToFix[rng];
-    while (pair != NULL)
+    while (pair)
     {
       FixJumpObj* ref = jumpobjref(pair->car());
       ref->fixJmp(label, jmp);
@@ -728,21 +728,22 @@ void JumpToFix::toFix(int label, RefPtr p)
   if (size == 0)
   {
     size = 2;
-    int totalsize = size * sizeof(PairPtr);
-    arrToFix = (PairPtr*)vm->alloc(totalsize);
-    memset((byte*)arrToFix, 0, totalsize);
+    arrToFix = (PairPtr*)vm->alloc(size * sizeof(PairPtr));
+    arrToFix[0] = NULL;
+    arrToFix[1] = NULL;
   }
 
   int rng = label - startlabel;
-  if (rng >= size - 1)
+  if (rng >= size)
   {
     int oldsize = size;
     do {
       size *= 2;
-    } while (rng >= size - 1);
+    } while (rng >= size);
 
-    arrToFix = (PairPtr*)vm->realloc(arrToFix, size * sizeof(PairPtr), size * sizeof(PairPtr));
-    memset((byte*)(arrToFix + oldsize), 0, (size - oldsize) * sizeof(PairPtr));
+    arrToFix = (PairPtr*)vm->realloc(arrToFix, oldsize * sizeof(PairPtr), size * sizeof(PairPtr));
+    for (int i = oldsize; i < size; i++)
+      arrToFix[i] = NULL;
   }
 
   ValueT fix;
@@ -780,11 +781,10 @@ void SCompiler::compilelink(InstPtr inst, JumpToFix* jf, ValueT* link)
   // jump to a label
   else
   {
-    Sgcvar1(vjump);
+    Sreservevt(vjump);
 
-    JumpLabel* jtf;
-    vjump = jtf = Sr1(JumpLabel, link);
-    jf->toFix(Slabeli(link), jtf);
+    *vjump = Sr1(JumpLabel, link);
+    jf->toFix(Slabeli(link), vjump->ref());
 
     setinst1v(inst, rvEmpty, rvEmpty, vjump);
   }
@@ -792,37 +792,45 @@ void SCompiler::compilelink(InstPtr inst, JumpToFix* jf, ValueT* link)
 
 void SCompiler::compilesym(InstPtr inst, int targetr, VarsPtr vars, JumpToFix* jf, SymPtr sym, ValueT* link)
 {
-  Sgcvar1(ref);
+  Sreservevt(ref);
 
   int needr = regv(rEnv);
 
-  int idx = vars->looklocal(sym);
-  if (idx < 0)
+  if (vars)
   {
-    idx = vars->lookovar(sym);
+    int idx = vars->looklocal(sym);
     if (idx < 0)
     {
-      int depth = 0;
-      idx = vars->lookouter(sym, &depth);
-
+      idx = vars->lookovar(sym);
       if (idx < 0)
       {
-        ref = Sr2(RefGlobalVar, targetr, sym);
-        needr = rvEmpty;
-      }
+        int depth = 0;
+        idx = vars->lookouter(sym, &depth);
 
+        if (idx < 0)
+        {
+          *ref = Sr2(RefGlobalVar, targetr, sym);
+          needr = rvEmpty;
+        }
+
+        else
+        {
+          idx = vars->addovar(vm, depth, idx);
+          *ref = Sr2(RefUpVar, targetr, idx);
+        }
+      }
       else
-      {
-        idx = vars->addovar(vm, depth, idx);
-        ref = Sr2(RefUpVar, targetr, idx);
-      }
+        *ref = Sr2(RefUpVar, targetr, idx);
     }
-    else
-      ref = Sr2(RefUpVar, targetr, idx);
-  }
 
+    else
+      *ref = Sr2(RefLocalVar, targetr, idx);
+  }
   else
-    ref = Sr2(RefLocalVar, targetr, idx);
+  {
+    *ref = Sr2(RefGlobalVar, targetr, sym);
+    needr = rvEmpty;
+  }
 
   setinst1v(inst, needr, regv(targetr), ref);
 
@@ -831,13 +839,12 @@ void SCompiler::compilesym(InstPtr inst, int targetr, VarsPtr vars, JumpToFix* j
 
 void SCompiler::makedef(InstPtr inst, int targetr, VarsPtr vars, JumpToFix* jf, ValueT* val)
 {
-  Sgcvar2(vsymval, vdef);
+  Sreservevt(symval);
 
   PairPtr pair = Spairref(val);
   ValueT* symv = pair->car();
 
   SymPtr sym = NULL;
-  ValueT* symval = NULL;
 
   // (define (a b c) ...)
   if (!issym(symv))
@@ -846,10 +853,8 @@ void SCompiler::makedef(InstPtr inst, int targetr, VarsPtr vars, JumpToFix* jf, 
     sym = Ssymref(symvpair->car());
 
     // (lambda (b c) ...)
-    vsymval = Sconsref(symvpair->cdr(), pair->cdr());
-    vsymval = Sconsref(Sklambda(), vsymval.obj());
-
-    symval = vsymval.obj();
+    *symval = Sconsref(symvpair->cdr(), pair->cdr());
+    *symval = Sconsref(Sklambda(), symval);
   }
 
   // (define a 2)
@@ -858,10 +863,12 @@ void SCompiler::makedef(InstPtr inst, int targetr, VarsPtr vars, JumpToFix* jf, 
     sym = symref(symv);
 
     pair = Spairref(pair->cdr());
-    symval = pair->car();
+    *symval = pair->car();
 
     Assert(pair->cdr()->isnull(), "define bad form");
   }
+
+  Sreservevt(vdef);
 
   int offset = -1;
   if (vars != NULL)
@@ -870,24 +877,24 @@ void SCompiler::makedef(InstPtr inst, int targetr, VarsPtr vars, JumpToFix* jf, 
     if (offset < 0)
       offset = vars->addlocal(vm, sym);
 
-    vdef = Sr1(DefLocalVar, offset);
+    *vdef = Sr1(DefLocalVar, offset);
   }
   else
-    vdef = Sr1(DefGlobalVar, sym);
+    *vdef = Sr1(DefGlobalVar, sym);
 
   compile(inst, rVal, vars, jf, symval, Snext);
 
   //  vdef = Sr1(DefVar, offset);
-  vdef = vm->list(vdef.obj());
+  *vdef = vm->list(vdef);
   Sinstvar(definst);
-  definst.set(regv(rEnv)|regv(rVal), regv(targetr), pairref(vdef.obj()));
+  definst.set(regv(rEnv)|regv(rVal), regv(targetr), pairref(vdef));
 
   inst->preserving(regv(rEnv), &definst);
 }
 
 void SCompiler::makeset(InstPtr inst, int targetr, VarsPtr vars, JumpToFix* jf, ValueT* val)
 {
-  Sgcvar1(vset);
+  Sreservevt(vset);
 
   PairPtr pair = Spairref(val);
   ValueT* symp = pair->car();
@@ -902,21 +909,21 @@ void SCompiler::makeset(InstPtr inst, int targetr, VarsPtr vars, JumpToFix* jf, 
       int depth = -1;
       offset = vars->lookouter(sym, &depth);
       if (offset < 0)
-        vset = Sr2(SetVarGlobal, sym, targetr);
+        *vset = Sr2(SetVarGlobal, sym, targetr);
 
       else
       {
         offset = vars->addovar(vm, depth, offset);
-        vset = Sr2(SetVarUp, offset, targetr);
+        *vset = Sr2(SetVarUp, offset, targetr);
       }
     }
     else
-      vset = Sr2(SetVarUp, offset, targetr);
+      *vset = Sr2(SetVarUp, offset, targetr);
   }
   else
-    vset = Sr2(SetVarLocal, offset, targetr);
+    *vset = Sr2(SetVarLocal, offset, targetr);
 
-  vset = vm->list(vset.obj());
+  *vset = vm->list(vset);
 
   pair = Spairref(pair->cdr());
   Assert(pair->cdr()->isnull(), "bad set! form");
@@ -924,7 +931,7 @@ void SCompiler::makeset(InstPtr inst, int targetr, VarsPtr vars, JumpToFix* jf, 
   compile(inst, rVal, vars, jf, pair->car(), Snext);
 
   Sinstvar(setinst);
-  setinst.set(regv(rEnv)|regv(rVal), regv(targetr), pairref(vset.obj()));
+  setinst.set(regv(rEnv)|regv(rVal), regv(targetr), pairref(vset));
 
   inst->preserving(regv(rEnv), &setinst);
 }
@@ -954,13 +961,13 @@ void SCompiler::makeiftest(InstPtr inst, int targetr, VarsPtr vars, JumpToFix* j
 
   compile(inst, rVal, vars, jf, pair->car(), Snext);
 
-  Sgcvar1(ifjmp);
-  ifjmp = Sr1(IfFalseJump, &branchfalse);
-  jf->toFix(labeli(&branchfalse), ifjmp.obj()->ref());
-  ifjmp = vm->list(ifjmp.obj());
+  Sreservevt(ifjmp);
+  *ifjmp = Sr1(IfFalseJump, &branchfalse);
+  jf->toFix(labeli(&branchfalse), ifjmp->ref());
+  *ifjmp = vm->list(ifjmp);
 
   Sinstvar(ifjmpinst);
-  ifjmpinst.set(regv(rVal), rvEmpty, pairref(ifjmp.obj()));
+  ifjmpinst.set(regv(rVal), rvEmpty, pairref(ifjmp));
 
   ValueT* conseqlink = isnext(link) ? &afterif : link;
 
@@ -998,7 +1005,7 @@ public:
 
 void SCompiler::makelambda(InstPtr inst, int targetr, VarsPtr vars, JumpToFix* jf, PairPtr pair, ValueT* link)
 {
-  Sgcvar1(lambda);
+  Sreservevt(lambda);
 
   VarsPtr newvars = Sr1(VarsObj, vars);
   Sgcreserve(newvars);
@@ -1009,11 +1016,11 @@ void SCompiler::makelambda(InstPtr inst, int targetr, VarsPtr vars, JumpToFix* j
   ValueT lambdaentry; setlabel(&lambdaentry);
   ValueT lambdaend; setlabel(&lambdaend);
 
-  lambda = Sr3(LambdaObj, targetr, newvars, &lambdaentry);
-  jf->toFix(labeli(&lambdaentry), lambda.obj()->ref());
-  lambda = vm->list(lambda.obj());
+  *lambda = Sr3(LambdaObj, targetr, newvars, &lambdaentry);
+  jf->toFix(labeli(&lambdaentry), lambda->ref());
+  *lambda = vm->list(lambda);
 
-  inst->set(regv(rEnv), regv(targetr), pairref(lambda.obj()));
+  inst->set(regv(rEnv), regv(targetr), pairref(lambda));
 
   ValueT* llink = isnext(link) ? &lambdaend : link;
 
@@ -1033,11 +1040,11 @@ void SCompiler::constructarg0(InstPtr inst, InstArr* iarr, int index)
   ValueT carg;
   setref(&carg, &consArg);
 
-  Sgcvar1(varg);
-  varg = vm->list(&carg);
+  Sreservevt(varg);
+  *varg = vm->list(&carg);
 
   Sinstvar(arginst);
-  arginst.set(regv(rVal)|regv(rArgl), regv(rArgl), pairref(varg.obj()));
+  arginst.set(regv(rVal)|regv(rArgl), regv(rArgl), pairref(varg));
 
   *inst = iarr->geti(index)->preserving(regv(rArgl), &arginst);
 
@@ -1056,19 +1063,12 @@ void SCompiler::constructarg(InstPtr inst, VarsPtr vars, JumpToFix* jf, ValueT* 
   ValueT vassignargnull;
   setref(&vassignargnull, &assignargnull);
 
-  Sgcvar2(compileargs, argv);
-
   int count = 0;
   for (ValueT* arg = cdrval; !arg->isnull(); arg = Spairref(arg)->cdr())
     count++;
 
   if (count <= 0)
-  {
-    Sgcvar1(assign);
-
-    assign = vm->list(&vassignargnull);
-    inst->set(rvEmpty, regv(rArgl), pairref(assign.obj()));
-  }
+    inst->set(rvEmpty, regv(rArgl), vm->list(&vassignargnull));
 
   else
   {
@@ -1087,11 +1087,8 @@ void SCompiler::constructarg(InstPtr inst, VarsPtr vars, JumpToFix* jf, ValueT* 
     ValueT carg;
     setref(&carg, &initArg);
 
-    Sgcvar1(first);
-    first = vm->list(&carg);
-
     Sinstvar(initinst);
-    initinst.set(regv(rVal), regv(rArgl), pairref(first.obj()));
+    initinst.set(regv(rVal), regv(rArgl), vm->list(&carg));
 
     int last = count - 1;
     *inst = iarr.geti(last)->append(&initinst);
@@ -1116,36 +1113,35 @@ void SCompiler::compilelambdaappl(InstPtr inst, JumpToFix* jf, int targetr, Valu
   if (targetr == rVal && !isreturn(link))
   {
     // link must be a label
-    Sgcvar1(assign);
-    AssignLabel* jtf;
-    assign = jtf = Sr2(AssignLabel, rContinue, link);
+    Sreservevt(assign);
+    *assign = Sr2(AssignLabel, rContinue, link);
+    jf->toFix(Slabeli(link), assign->ref());
 
-    inst->set(regv(rProc), allreg, vm->list(assign.obj(), &vjumpproc));
-
-    jf->toFix(Slabeli(link), jtf);
+    inst->set(regv(rProc), allreg, vm->list(assign, &vjumpproc));
   }
 
   else if (targetr != rVal && !isreturn(link))
   {
-    Sgcvar3(assign, assignreg, jmp);
+    Sreservevt(assign);
+    Sreservevt(assignreg);
+    Sreservevt(jmp);
 
     ValueT branchreturn; setlabel(&branchreturn);
 
-    AssignLabel* jtf1;
-    JumpLabel *jtf2;
-    assign = jtf1 = Sr2(AssignLabel, rContinue, &branchreturn);
-    jmp = jtf2 = Sr1(JumpLabel, link);
-    assignreg = Sr2(AssignReg, targetr, rVal);
+    *assign = Sr2(AssignLabel, rContinue, &branchreturn);
+    jf->toFix(labeli(&branchreturn), assign->ref());
 
-    PairPtr expr = vm->list(assign.obj(),
+    *jmp = Sr1(JumpLabel, link);
+    jf->toFix(Slabeli(link), jmp->ref());
+
+    *assignreg = Sr2(AssignReg, targetr, rVal);
+
+    PairPtr expr = vm->list(assign,
                             &vjumpproc,
                             &branchreturn,
-                            assignreg.obj(),
-                            jmp.obj());
+                            assignreg,
+                            jmp);
     Sgcreserve(expr);
-
-    jf->toFix(labeli(&branchreturn), jtf1);
-    jf->toFix(Slabeli(link), jtf2);
 
     inst->set(regv(rProc), allreg, expr);
   }
@@ -1161,14 +1157,15 @@ void SCompiler::compilelambdaappl(InstPtr inst, JumpToFix* jf, int targetr, Valu
 
 void SCompiler::compileappcall(InstPtr inst, JumpToFix* jf, int targetr, ValueT* link)
 {
-  Sgcvar2(applyprim, callapp);
-
   ValueT branchprim; setlabel(&branchprim);
   ValueT branchcompile; setlabel(&branchcompile);
   ValueT aftercall; setlabel(&aftercall);
 
-  CallApp* fjo;
-  callapp = fjo = Sr2(CallApp, &branchcompile, &branchprim);
+  Sreservevt(callapp);
+  *callapp = Sr2(CallApp, &branchcompile, &branchprim);
+  jf->toFix(labeli(&branchcompile), callapp->ref());
+  jf->toFix(labeli(&branchprim), callapp->ref());
+
   setinst1v(inst, regv(rProc), rvEmpty, callapp);
 
   ValueT* compilelink = isnext(link) ? &aftercall : link;
@@ -1177,7 +1174,9 @@ void SCompiler::compileappcall(InstPtr inst, JumpToFix* jf, int targetr, ValueT*
   compilelambdaappl(&lambdainst, jf, targetr, compilelink);
   lambdainst.label(&branchcompile);
 
-  applyprim = Sr1(ApplyPrim, targetr);
+  Sreservevt(applyprim);
+  *applyprim = Sr1(ApplyPrim, targetr);
+
   Sinstvar(priminst);
   setinst1v(&priminst, regv(rProc)|regv(rArgl), regv(targetr), applyprim);
   priminst.label(&branchprim);
@@ -1185,9 +1184,6 @@ void SCompiler::compileappcall(InstPtr inst, JumpToFix* jf, int targetr, ValueT*
   endwithlink(jf, &priminst, link);
 
   inst->append(lambdainst.parallel(&priminst)->labelend(&aftercall));
-
-  jf->toFix(labeli(&branchcompile), fjo);
-  jf->toFix(labeli(&branchprim), fjo);
 }
 
 void SCompiler::makeapp(InstPtr inst, int targetr, VarsPtr vars, JumpToFix* jf, ValueT* type, ValueT* cdrval, ValueT* link)
@@ -1210,11 +1206,10 @@ void SCompiler::compilepair(InstPtr inst, int targetr, VarsPtr vars, JumpToFix* 
 
   if (iskquote(type))
   {
-    Sgcvar1(assign);
+    Sreservevt(assign);
 
-    assign = Sr2(Assign, targetr, pair->cdr());
-    assign = vm->list(assign.obj());
-    inst->set(rvEmpty, regv(targetr), pairref(assign.obj()));
+    *assign = Sr2(Assign, targetr, pair->cdr());
+    inst->set(rvEmpty, regv(targetr), vm->list(assign));
 
     endwithlink(jf, inst, link);
   }
@@ -1254,9 +1249,9 @@ void SCompiler::compile(InstPtr inst, int targetr, VarsPtr vars, JumpToFix* jf, 
 
   else /* (val->isnull()) or other types */
   {
-    Sgcvar1(assign);
+    Sreservevt(assign);
 
-    assign = Sr2(Assign, targetr, val);
+    *assign = Sr2(Assign, targetr, val);
     setinst1v(inst, rvEmpty, targetr, assign);
 
     endwithlink(jf, inst, link);
@@ -1280,14 +1275,13 @@ PairPtr SCompiler::extractlabel(JumpToFix* jf, PairPtr expr)
   ValueT* first = expr->car();
   if (islabel(first))
   {
-    Sgcvar1(inst);
-
-    inst = extractlabel(jf, pairref(expr->cdr()));
     int label = labeli(first);
 
-    jf->fix(label, pairref(inst.obj()));
+    PairPtr pair  = extractlabel(jf, pairref(expr->cdr()));
+    if (pair)
+      jf->fix(label, pair);
 
-    return pairref(inst.obj());
+    return pair;
   }
 
   else
@@ -1493,9 +1487,10 @@ void VM::checkgc()
 
 void VM::eval(ValueT* out, PairPtr expr)
 {
-  GCVar tmp(this);
-
   VM* vm = this;
+
+  Sreservevt(tmp);
+
   PairPtr pc = expr;
  loop:
   if (!pc) return;
@@ -1540,12 +1535,12 @@ void VM::eval(ValueT* out, PairPtr expr)
     goto loop;
   }
   case CMD_SAVE_REG: {
-    tmp = Sr2(RegFrame, saveregptr(cmd)->reg, regs);
+    *tmp = Sr2(RegFrame, saveregptr(cmd)->reg, regs);
     ValueT frm;
     if (frames != NULL)
       setpair(&frm, frames);
 
-    frames = Sconsref(tmp.obj(), &frm);
+    frames = Sconsref(tmp, &frm);
     break;
   }
   case CMD_RESTORE_REG: {
@@ -1700,8 +1695,9 @@ void* VM::realloc(void* ptr, size_t osize, size_t nsize)
   if (osize < nsize) memset((byte*)block + osize, 0, nsize - osize);
 
   getgc()->debt(debt + nsize - osize);
+  debt = getgc()->debt();
 
-  Debug(Print("realloc mem(%n) -> %p old(%n) -> %p \n", nsize, block, osize, ptr));
+  Debug(Print("realloc mem(%u) -> %p old(%u) -> %p debt %ld\n", nsize, block, osize, ptr, debt));
 
   return block;
 }
@@ -1719,8 +1715,9 @@ void* VM::alloc(size_t size)
   memset(block, 0, size);
 
   getgc()->debt(debt + size);
+  debt = getgc()->debt();
 
-  Debug(Print("alloc mem(%d) -> %p \n", size, block));
+  Debug(Print("alloc mem(%u) -> %p debt %ld\n", size, block, debt));
 
   return block;
 }
@@ -2233,16 +2230,16 @@ void Lexer::readListT(ValueT* v)
   PairObj* last = NULL;
   bool dot = false;
 
-  Sgcvar1(sval);
+  Sreservevt(sval);
 
   while (aheadToken != TOKEN_RIGHT_PAREN &&
          aheadToken != TOKEN_RIGHT_SQUARE_PAREN)
   {
-    sval.obj()->reset();
+    sval->reset();
 
-    readValueT(sval.obj());
+    readValueT(sval);
 
-    if (Sisnull(sval.obj()))
+    if (Sisnull(sval))
     {
       if (aheadToken == TOKEN_DOT)
       {
@@ -2252,7 +2249,7 @@ void Lexer::readListT(ValueT* v)
 
         match(TOKEN_DOT);
 
-        readValueT(sval.obj());
+        readValueT(sval);
 
         Assert(aheadToken == TOKEN_RIGHT_SQUARE_PAREN ||
                aheadToken == TOKEN_RIGHT_PAREN,
@@ -2261,7 +2258,7 @@ void Lexer::readListT(ValueT* v)
       }
     }
 
-    PairPtr tmp = vm->list(sval.obj());
+    PairPtr tmp = vm->list(sval);
 
     if (NULL == last)
     {
@@ -2278,7 +2275,7 @@ void Lexer::readListT(ValueT* v)
     }
   }
 
-  if (dot) last->cdr(sval.obj());
+  if (dot) last->cdr(sval);
 }
 
 void Lexer::readValueT(ValueT* v)
@@ -2298,30 +2295,30 @@ void Lexer::readValueT(ValueT* v)
     break;
 	case TOKEN_QUOTE: {
     match(TOKEN_QUOTE);
-    Sgcvar1(v2);
-    readValueT(v2.obj());
-    setpair(v, Squote_ref(v2.obj()));
+    Sreservevt(v2);
+    readValueT(v2);
+    setpair(v, Squote_ref(v2));
     break;
   }
 	case TOKEN_UNQUOTE: {
     match(TOKEN_UNQUOTE);
-    Sgcvar1(v2);
-    readValueT(v2.obj());
-    setpair(v, Su_quote_ref(v2.obj()));
+    Sreservevt(v2);
+    readValueT(v2);
+    setpair(v, Su_quote_ref(v2));
     break;
   }
 	case TOKEN_QUASIQUOTE: {
     match(TOKEN_QUASIQUOTE);
-    Sgcvar1(v2);
-    readValueT(v2.obj());
-    setpair(v, Sq_quote_ref(v2.obj()));
+    Sreservevt(v2);
+    readValueT(v2);
+    setpair(v, Sq_quote_ref(v2));
     break;
   }
 	case TOKEN_UNQUOTE_SPLICING: {
     match(TOKEN_UNQUOTE_SPLICING);
-    Sgcvar1(v2);
-    readValueT(v2.obj());
-    setpair(v, Su_quote_s_ref(v2.obj()));
+    Sreservevt(v2);
+    readValueT(v2);
+    setpair(v, Su_quote_s_ref(v2));
     break;
   }
 	case TOKEN_LEFT_PAREN:

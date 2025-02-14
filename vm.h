@@ -72,7 +72,6 @@ enum ValueTEnum {
 
   VT_LABEL,
 
-
   /* all type below must be gcref type */
   VT_REF,
 
@@ -188,6 +187,10 @@ struct ValueT {
     copy(rhs);
     return *this;
   }
+  const ValueT& operator = (RefPtr val) {
+    setref(this, val);
+    return *this;
+  }
 
   bool refequal (const ValueT* rhs) const {
     return t == rhs->t && v.p == rhs->v.p;
@@ -235,7 +238,19 @@ class VM;
 
 #define GetSize(T) virtual int getsize() { return sizeof(T); }
 
-struct RefObject {
+#define jumpobjref(VT) ((FixJumpObj*)(VT)->ref())
+
+struct FixJumpObj {
+  virtual void fixJmp(int label, PairPtr dest) = 0;
+};
+
+#define execmdref(VT) (ExeCmd*)(VT)->ref()
+
+struct ExeCmd {
+  virtual int getcmd() = 0;
+};
+
+struct RefObject : public FixJumpObj, public ExeCmd {
   RefObject() { marked = 0; gcnxt = NULL; }
   virtual ~RefObject() {}
 
@@ -253,6 +268,9 @@ struct RefObject {
   virtual void finz(VM* vm);
 
   virtual int getsize() = 0;
+
+  virtual int getcmd() { Error("internal error getcmd"); return -1; }
+  virtual void fixJmp(int label, PairPtr dest) { Error("internal error fixjmp"); }
 
   RefPtr gcnxt;
   byte marked;
@@ -365,25 +383,21 @@ protected:
 
 #define Sinstvar(a) Instruction a (vm);
 
-#define Sgcvar1(a) GCVar a(vm);
-#define Sgcvar2(a, b) GCVar a(vm), b(vm);
-#define Sgcvar3(a, b, c) Sgcvar2(a, b); Sgcvar1(c);
-#define Sgcvar4(a, b, c, d) Sgcvar3(a, b, c); Sgcvar1(d);
-#define Sgcvar5(a, b, c, d, e) Sgcvar4(a, b, c, d); Sgcvar1(e);
-
 #define Sgcreserve(ref) gcreserve(vm, ref)
 #define gcreserve(vm, ref) GCVar v ## ref ## __LINE__ (vm, ref);
+
+#define GCVARNAME(NAME) GCVAR ## NAME ## __FUNCTION__ ## __LINE__
+
+#define Sreservevt(NAME) reservevt(vm, NAME)
+
+#define reservevt(vm, NAME)                                           \
+  GCVar GCVARNAME(NAME) (vm); ValueT* NAME = GCVARNAME(NAME) . obj();
 
 class GCVar {
 public:
   GCVar(VM* v);
   GCVar(VM* v, RefPtr val): GCVar(v) {
     setref(object, val);
-  }
-
-  const GCVar& operator = (RefPtr val) {
-    setref(object, val);
-    return *this;
   }
 
   ValueT* obj() { return object; }
@@ -799,7 +813,7 @@ protected:
   ValueT regs[rMax];
 
   PairPtr frames;
-protected:
+public:
   void eval(ValueT* out, PairPtr expr);
 protected:
   ScmAlloc frealloc;
@@ -834,8 +848,12 @@ public:
   void* realloc(void* ptr, size_t osize, size_t nsize);
   void free(void* ptr, size_t size) {
     frealloc(ptr, 0);
+
     long debt = getgc()->debt();
     getgc()->debt(debt - size);
+    debt = getgc()->debt();
+
+    Debug(Print("free mem(%u) -> %p debt %ld\n", size, ptr, debt));
   }
 
   PairPtr consref(ValueT* h, ValueT* t);
@@ -939,18 +957,6 @@ struct OuterVar {
   OuterVar(int d, int i): name(NULL), depth(d), idx(i) {}
 };
 
-#define jumpobjref(VT) ((FixJumpObj*)(VT)->ref())
-
-struct FixJumpObj {
-  virtual void fixJmp(int label, PairPtr dest) = 0;
-};
-
-#define execmdref(VT) (ExeCmd*)(VT)->ref()
-
-struct ExeCmd {
-  virtual int getcmd() = 0;
-};
-
 enum ExeCmdEnum {
   CMD_ASSIGN,
   CMD_LAMBDA,
@@ -981,7 +987,7 @@ enum ExeCmdEnum {
 
 
 #define setinst1v(inst, r, m, v) \
-  (v = vm->list(v.obj()), (inst)->set(r, m, pairref(v.obj())))
+  (*v = vm->list(v), (inst)->set(r, m, pairref(v)))
 
 class Instruction {
 public:
@@ -989,7 +995,7 @@ public:
 
   void set(int n, int m, PairPtr v) {
     rneed = n, rmod = m;
-    var = expr = v;
+    setref(var.obj(), expr = v);
   }
 
   const Instruction& operator = (InstPtr rhs) {
@@ -1009,7 +1015,7 @@ public:
 
   void endwithpair(PairPtr p2);
 
-  void setexpr(PairPtr e) { var = expr = e; }
+  void setexpr(PairPtr e) { setref(var.obj(), expr = e); }
 
   int rneed;
   int rmod;
@@ -1075,7 +1081,7 @@ struct VarsObj : public RefObject {
 
 #define lambdaptr(VT) ((LambdaPtr)(VT))
 
-struct LambdaObj : public RefObject, public FixJumpObj, public ExeCmd {
+struct LambdaObj : public RefObject {
   LambdaObj(int r, VarsPtr v, ValueT* e): targetr(r), vars(v), entry(*e) {
   }
 
@@ -1140,7 +1146,7 @@ typedef ClosureObj* ClosurePtr;
 
 #define assignptr(VT) ((Assign*)(VT))
 
-struct Assign : public RefObject, public ExeCmd {
+struct Assign : public RefObject {
   Assign(int r, ValueT* v): reg(r), val(*v) {}
 
   virtual int getcmd() { return CMD_ASSIGN; }
@@ -1156,7 +1162,7 @@ struct Assign : public RefObject, public ExeCmd {
   ValueT val;
 };
 
-struct AssignLabel : public Assign, public FixJumpObj {
+struct AssignLabel : public Assign {
   AssignLabel(int r, ValueT* v): Assign(r, v) {}
 
   virtual void fixJmp(int label, PairPtr dest) {
@@ -1167,7 +1173,7 @@ struct AssignLabel : public Assign, public FixJumpObj {
 
 #define assignregptr(VT) ((AssignReg*)(VT))
 
-struct AssignReg : public RefObject, public ExeCmd {
+struct AssignReg : public RefObject {
   AssignReg(int d, int s): dst(d), src(s) {}
 
   virtual int getcmd() { return CMD_ASSIGN_REG; }
@@ -1182,19 +1188,19 @@ struct AssignReg : public RefObject, public ExeCmd {
   int src;
 };
 
-struct JumpProc : public RefObject, public ExeCmd {
+struct JumpProc : public RefObject {
   virtual int getcmd() { return CMD_JUMP_PROC; }
   GetSize(JumpProc)
 };
 
-struct JumpContinue : public RefObject, public ExeCmd {
+struct JumpContinue : public RefObject {
   virtual int getcmd() { return CMD_JUMP_CONTINUE; }
   GetSize(JumpContinue)
 };
 
 #define jumplabelptr(VT) ((JumpLabel*)(VT))
 
-struct JumpLabel : public RefObject, public FixJumpObj, public ExeCmd {
+struct JumpLabel : public RefObject {
   JumpLabel(ValueT* v): entry(*v) {}
 
   virtual int getcmd() { return CMD_JUMP_LABEL; }
@@ -1212,7 +1218,7 @@ struct JumpLabel : public RefObject, public FixJumpObj, public ExeCmd {
 
 #define saveregptr(VT) ((SaveReg*)(VT))
 
-struct SaveReg : public RefObject, public ExeCmd {
+struct SaveReg : public RefObject {
   SaveReg(int r): reg(r) {}
 
   virtual int getcmd() { return CMD_SAVE_REG; }
@@ -1224,7 +1230,7 @@ struct SaveReg : public RefObject, public ExeCmd {
 
 #define restoreregptr(VT) ((RestoreReg*)(VT))
 
-struct RestoreReg : public RefObject, public ExeCmd {
+struct RestoreReg : public RefObject {
   RestoreReg(int r): reg(r) {}
 
   virtual int getcmd() { return CMD_RESTORE_REG; }
@@ -1235,7 +1241,7 @@ struct RestoreReg : public RefObject, public ExeCmd {
 
 #define reflocalptr(VT) ((RefLocalVar*)(VT))
 
-struct RefLocalVar : public RefObject, public ExeCmd {
+struct RefLocalVar : public RefObject {
   RefLocalVar(int r, int off) : reg(r), offset(off) {}
 
   virtual int getcmd() { return CMD_REF_LOCAL; }
@@ -1255,7 +1261,7 @@ struct RefLocalVar : public RefObject, public ExeCmd {
 
 #define refupptr(VT) ((RefUpVar*)(VT))
 
-struct RefUpVar : public RefObject, public ExeCmd {
+struct RefUpVar : public RefObject {
   RefUpVar(int r, int oi) :
     reg(r), oidx(oi) {}
 
@@ -1277,7 +1283,7 @@ struct RefUpVar : public RefObject, public ExeCmd {
 
 #define refglobalptr(VT) ((RefGlobalVar*)(VT))
 
-struct RefGlobalVar : public RefObject, public ExeCmd {
+struct RefGlobalVar : public RefObject {
   RefGlobalVar(int r, SymPtr p) :
     reg(r), var(p) {}
 
@@ -1300,7 +1306,7 @@ struct RefGlobalVar : public RefObject, public ExeCmd {
 
 #define defglobalptr(VT) ((DefGlobalVar*)(VT))
 
-struct DefGlobalVar : public RefObject, public ExeCmd {
+struct DefGlobalVar : public RefObject {
   DefGlobalVar(SymPtr v): var(v) {}
 
   virtual int getcmd() { return CMD_DEF_GLOBAL; }
@@ -1317,7 +1323,7 @@ struct DefGlobalVar : public RefObject, public ExeCmd {
 
 #define deflocalptr(VT) ((DefLocalVar*)(VT))
 
-struct DefLocalVar : public RefObject, public ExeCmd {
+struct DefLocalVar : public RefObject {
   DefLocalVar(int off): offset(off) {}
 
   virtual int getcmd() { return CMD_DEF_LOCAL; }
@@ -1333,7 +1339,7 @@ struct DefLocalVar : public RefObject, public ExeCmd {
 
 #define setvarlocalptr(ptr) ((SetVarLocal*)(ptr))
 
-struct SetVarLocal : public RefObject, public ExeCmd {
+struct SetVarLocal : public RefObject {
   SetVarLocal(int off, int r): reg(r), offset(off) {}
 
   virtual int getcmd() { return CMD_SET_LOCAL; }
@@ -1351,7 +1357,7 @@ struct SetVarLocal : public RefObject, public ExeCmd {
 
 #define setvarupptr(ptr) ((SetVarUp*)(ptr))
 
-struct SetVarUp : public RefObject, public ExeCmd {
+struct SetVarUp : public RefObject {
   SetVarUp(int off, int r): reg(r), offset(off) {}
 
   virtual int getcmd() { return CMD_SET_UP; }
@@ -1369,7 +1375,7 @@ struct SetVarUp : public RefObject, public ExeCmd {
 
 #define setvarglobalptr(ptr) ((SetVarGlobal*)(ptr))
 
-struct SetVarGlobal : public RefObject, public ExeCmd {
+struct SetVarGlobal : public RefObject {
   SetVarGlobal(SymPtr p, int r): reg(r), var(p) {}
 
   virtual int getcmd() { return CMD_SET_GLOBAL; }
@@ -1391,7 +1397,7 @@ struct SetVarGlobal : public RefObject, public ExeCmd {
 
 #define iffalsejumpptr(ptr) ((IfFalseJump*)ptr)
 
-struct IfFalseJump : public RefObject, public FixJumpObj, public ExeCmd {
+struct IfFalseJump : public RefObject {
   IfFalseJump(ValueT* jump): entry(*jump) {}
 
   virtual int getcmd() { return CMD_IF_FALSE_JUMP; }
@@ -1407,14 +1413,14 @@ struct IfFalseJump : public RefObject, public FixJumpObj, public ExeCmd {
   ValueT entry;
 };
 
-struct InitArg : public RefObject, public ExeCmd {
+struct InitArg : public RefObject {
   virtual int getcmd() { return CMD_INIT_ARG; }
   GetSize(InitArg)
 };
 
 #define applyprimptr(VT) ((ApplyPrim*)(VT))
 
-struct ApplyPrim : public RefObject, public ExeCmd {
+struct ApplyPrim : public RefObject {
   ApplyPrim(int r): targetr(r) {}
 
   virtual int getcmd() { return CMD_APPLY_PRIM; }
@@ -1425,19 +1431,18 @@ struct ApplyPrim : public RefObject, public ExeCmd {
 
 #define callappptr(VT) ((CallApp*)(VT))
 
-struct CallApp : public RefObject, public FixJumpObj, public ExeCmd {
-  CallApp(ValueT* l1, ValueT* l2):lproc(*l1), lprim(*l2) {}
+struct CallApp : public RefObject {
+  CallApp(ValueT* l1, ValueT* l2):lproc(l1), lprim(l2) {}
 
   virtual int getcmd() { return CMD_CALL_APP; }
 
   virtual void fixJmp(int label, PairPtr dest) {
-    Assert(islabel(&lproc) && islabel(&lprim), "label error");
-    if (labeli(&lproc) == label) {
+    if (islabel(&lproc) && labeli(&lproc) == label) {
       setpair(&lproc, dest);
-    } else if (labeli(&lprim) == label) {
+    } else if (islabel(&lprim) && labeli(&lprim) == label) {
       setpair(&lprim, dest);
     } else {
-      Error("label error %d", label);
+      Error("label error %d proc %d prim %d", label, typet(&lproc), typet(&lprim));
     }
   }
 
@@ -1448,7 +1453,7 @@ struct CallApp : public RefObject, public FixJumpObj, public ExeCmd {
   ValueT lprim;
 };
 
-struct ConsArg : public RefObject, public ExeCmd {
+struct ConsArg : public RefObject {
   virtual int getcmd() { return CMD_CONS_ARG; }
   GetSize(ConsArg)
 };
