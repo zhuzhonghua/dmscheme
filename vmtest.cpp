@@ -10,6 +10,7 @@ void test(VM* vm, const char* stat)
   lex.readOne(expr);
 
   PairPtr exprstat = Compiler(vm)->compile(expr);
+  setpair(expr, exprstat);
 
   Sreservevt(exprout);
   vm->eval(exprout, exprstat);
@@ -22,6 +23,10 @@ int main(int argc, char **argv)
   VM vm;
 
   test(&vm, "(+ 1 2)");
+
+  std::cout << std::endl << "pause";
+  String input;
+  getline(std::cin, input);
 
   return 0;
 }

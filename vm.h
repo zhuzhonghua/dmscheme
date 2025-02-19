@@ -241,13 +241,13 @@ class VM;
 #define jumpobjref(VT) ((FixJumpObj*)(VT)->ref())
 
 struct FixJumpObj {
-  virtual void fixJmp(int label, PairPtr dest) = 0;
+  virtual void fixJmp(int label, PairPtr dest) { Error("internal error fixjmp"); }
 };
 
 #define execmdref(VT) (ExeCmd*)(VT)->ref()
 
 struct ExeCmd {
-  virtual int getcmd() = 0;
+  virtual int getcmd() { Error("internal error getcmd"); return -1; }
 };
 
 struct RefObject : public FixJumpObj, public ExeCmd {
@@ -257,7 +257,9 @@ struct RefObject : public FixJumpObj, public ExeCmd {
   void markweak() { marked |= (1 << WEAKTAG); }
 
   bool isgcmark(byte bits) { return bits & marked; }
+  bool iscurmark(VM* vm);
   void gcmark(byte bit) { marked = (marked & ~GCBITS) | bit; }
+  void curmark(VM* vm);
 
   RefPtr link(RefPtr ref) {
     gcnxt = ref;
@@ -268,9 +270,6 @@ struct RefObject : public FixJumpObj, public ExeCmd {
   virtual void finz(VM* vm);
 
   virtual int getsize() = 0;
-
-  virtual int getcmd() { Error("internal error getcmd"); return -1; }
-  virtual void fixJmp(int label, PairPtr dest) { Error("internal error fixjmp"); }
 
   RefPtr gcnxt;
   byte marked;
@@ -551,7 +550,10 @@ protected:
     ref->gcmark(bitmask[idx]);
     return ref;
   }
-  void addref(RefPtr ref, int idx) { gclst[idx] = ref->link(gclst[idx]); }
+  void addref(RefPtr ref, int idx) {
+    ref->link(gclst[idx]);
+    gclst[idx] = ref;
+  }
 
   friend class VM;
   RefObjGroup(VM* v) {
@@ -606,32 +608,33 @@ enum GCState {
 
 class SGC {
 public:
-  typedef void (SGC::*TouchChild)(ValueT* v);
+  typedef void (SGC::*TouchPtr)(RefPtr ptr);
 protected:
-  TouchChild touchf;
+  TouchPtr ftouchptr;
 
-  void addchildgraylst(ValueT* ref);
-  void visitchild(ValueT* ref) { ref->ref()->visit(vm); }
+  void addgraylst(RefPtr ptr);
+  void touchchild(RefPtr ptr) { ptr->visit(vm); }
 public:
   void stepfullgc();
 
   void singlestep();
 
+  void checkBarrier(RefPtr ptr);
   void checkTrace(ValueT v) { checkTrace(&v); }
-  void checkTrace(ValueT* v);
-  void checkTrace(RefPtr ptr) {
-    ValueT ref;
-    setref(&ref, ptr);
-    checkTrace(&ref);
+  void checkTrace(ValueT* v) {
+    if (v->isref()) checkTrace(v->ref());
   }
+  void checkTrace(RefPtr ptr);
 
   void startstep();
 
+  int getstate() { return state; }
   // perform a complete gc
   void fullgc();
 
   void toDel(RefPtr ref);
 
+  void toDelOrMark(RefPtr ref);
 public:
   void debt(long size) { debtbytes = size; }
   long debt() { return debtbytes; }
@@ -649,7 +652,7 @@ protected:
     state = GCSNone;
     toDelLst = NULL;
     graylstLast = graylst = NULL;
-    touchf = NULL;
+    ftouchptr = NULL;
     debtbytes = 0;
   }
 protected:
@@ -853,7 +856,7 @@ public:
     getgc()->debt(debt - size);
     debt = getgc()->debt();
 
-    Debug(Print("free mem(%u) -> %p debt %ld\n", size, ptr, debt));
+    Debug(Print("free mem(%u) -> %p \n", size, ptr));
   }
 
   PairPtr consref(ValueT* h, ValueT* t);
@@ -1380,12 +1383,14 @@ struct SetVarGlobal : public RefObject {
 
   virtual int getcmd() { return CMD_SET_GLOBAL; }
 
-  void set(ValueT regs[rMax], GSymTable* genv) {
+  void set(VM* vm, ValueT regs[rMax], GSymTable* genv) {
     PairPtr pair = genv->getslot(var);
     Assert(pair, "undefined global variable %s", objstr(var));
 
     pair->cdr(&regs[rVal]);
     setundefined(&regs[reg]);
+
+    GC(vm)->checkBarrier(pair);
   }
 
   Visit1(var)

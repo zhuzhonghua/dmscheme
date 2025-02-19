@@ -8,9 +8,20 @@ void RefObject::finz(VM* vm)
   if (marked & (1 << WEAKTAG))
     vm->rmWeak(this);
 
+  int size = this->getsize();
   this->~RefObject();
 
-  vm->free(this, this->getsize());
+  vm->free(this, size);
+}
+
+void RefObject::curmark(VM* vm)
+{
+  this->gcmark(ObjGroup(vm)->curbit());
+}
+
+bool RefObject::iscurmark(VM* vm)
+{
+  return isgcmark(ObjGroup(vm)->curbit());
 }
 
 void PairObj::finz(VM* vm)
@@ -28,12 +39,6 @@ GCVar::~GCVar()
 {
   Stk(vm)->freez(hori, vert);
 }
-
-#define ToDelOrMark(item, objgroup, gc)         \
-{if ((item)->isgcmark((objgroup)->curbit()))    \
-    (objgroup)->addrefcur(item);                \
-  else                                          \
-    gc->toDel(item);}
 
 #define SweepListNext(gclist, objgroup, gc, delpost)  \
 { RefPtr* lst = &(gclist);                            \
@@ -59,23 +64,21 @@ void RefObjGroup::fullsweep()
     RefPtr item = *lst;
     lst = &(*lst)->gcnxt;
 
-    ToDelOrMark(item, this, GC(vm));
+    GC(vm)->toDelOrMark(item);
   }
 }
 
 bool RefObjGroup::stepsweep()
 {
-  RefPtr* lst = &gclst[othIdx];
-
-  for(int i = 0; i < 10 && (*lst) != NULL; i++)
+  for(int i = 0; i < 10 && gclst[othIdx] != NULL; i++)
   {
-    RefPtr item = *lst;
-    lst = &(*lst)->gcnxt;
+    RefPtr item = gclst[othIdx];
+    gclst[othIdx] = gclst[othIdx]->gcnxt;
 
-    ToDelOrMark(item, this, GC(vm));
+    GC(vm)->toDelOrMark(item);
   }
 
-  return (*lst) != NULL;
+  return gclst[othIdx] != NULL;
 }
 
 void StackFrame::mark(VM* vm)
@@ -155,7 +158,12 @@ void StackMatrix::fullmark()
 
 void CachePairObj::addref(PairPtr ref)
 {
-  cache = (PairPtr)ref->link(cache);
+  ref->car(Snullref);
+  ref->cdr(Snullref);
+
+  // TODO: check capacity to release some caches
+  ref->link(cache);
+  cache = ref;
 }
 
 PairPtr CachePairObj::getone()
@@ -172,7 +180,7 @@ void CachePairObj::fullsweep()
   {
     PairPtr p = cache;
     cache = (PairPtr)cache->gcnxt;
-    p->finz(vm);
+    p->RefObject::finz(vm);
   }
 }
 
@@ -193,7 +201,7 @@ void SGC::startstep()
   Stk(vm)->startstep();
   Intern(vm)->startstep();
 
-  touchf = &SGC::addchildgraylst;
+  ftouchptr = &SGC::addgraylst;
 }
 
 bool SGC::markgray()
@@ -208,13 +216,11 @@ bool SGC::markgray()
 
     // must be refval
     Assert(pair->car()->isref(), "internal error gray lst car not ref");
-    Assert(pair->cdr()->isref(), "internal error gray lst cdr not ref");
+//    Assert(pair->cdr()->isref(), "internal error gray lst cdr not ref");
 
-    Check(pair->car());
-    Check(pair->cdr());
-
-    pair->car(Snullref);
-    pair->cdr(Snullref);
+    pair->car()->ref()->visit(vm);
+    if (!pair->cdr()->isnull())
+      pair->cdr()->ref()->visit(vm);
 
     CachePair(vm)->addref(pair);
   }
@@ -222,21 +228,23 @@ bool SGC::markgray()
   return true;
 }
 
-void SGC::addchildgraylst(ValueT* ref)
+void SGC::addgraylst(RefPtr ref)
 {
+  ValueT vt;
+  setref(&vt, ref);
+
   if (graylst == NULL)
   {
     PairPtr pair = vm->getonepairnor();
 
     graylst = graylstLast = pair;
 
-    graylstLast->car(ref);
+    graylstLast->car(&vt);
   }
   else
   {
-    ValueT* last = graylstLast->cdr();
-    if (last->isnull())
-      *last = ref;
+    if (graylstLast->cdr()->isnull())
+      graylstLast->cdr(&vt);
 
     else
     {
@@ -245,7 +253,7 @@ void SGC::addchildgraylst(ValueT* ref)
       graylstLast->gcnxt = pair;
       graylstLast = pair;
 
-      pair->car(ref);
+      pair->car(&vt);
     }
   }
 }
@@ -297,15 +305,10 @@ void SGC::sweepgray()
     PairPtr pair = graylst;
     graylst = (PairPtr)graylst->gcnxt;
 
-    RefPtr item = pair->car()->ref();
-
-    ToDelOrMark(item, ObjGroup(vm), this);
+    toDelOrMark(pair->car()->ref());
 
     if (!pair->cdr()->isnull())
-    {
-      item = pair->cdr()->ref();
-      ToDelOrMark(item, ObjGroup(vm), this);
-    }
+      toDelOrMark(pair->cdr()->ref());
 
     this->toDel(pair);
   }
@@ -315,7 +318,7 @@ void SGC::sweepgray()
 
 void SGC::fullgc()
 {
-  touchf = &SGC::visitchild;
+  ftouchptr = &SGC::touchchild;
 
   // set fullgc mark
   ObjGroup(vm)->setfullgcmask();
@@ -349,7 +352,7 @@ void SGC::fullgc()
   ObjGroup(vm)->unsetfullgcmask();
 
   // reset to incremental gc
-  touchf = &SGC::addchildgraylst;
+  ftouchptr = &SGC::addgraylst;
 
   // ignore previous state
   state = GCSNone;
@@ -376,19 +379,29 @@ void SGC::stepfullgc()
     singlestep();
 }
 
-void SGC::checkTrace(ValueT* v)
+void SGC::checkTrace(RefPtr ptr)
 {
-  if (v->isref())
+  if (ptr && !ptr->iscurmark(vm))
   {
-    byte curbit = ObjGroup(vm)->curbit();
-    RefPtr ptr = v->ref();
-    if (!ptr->isgcmark(curbit))
-    {
-      ptr->gcmark(curbit);
+    ptr->curmark(vm);
 
-      (this->*touchf)(v);
-    }
+    (this->*ftouchptr)(ptr);
   }
+}
+
+void SGC::toDelOrMark(RefPtr ref)
+{
+  if (ref->isgcmark(ObjGroup(vm)->curbit()))
+    ObjGroup(vm)->addrefcur(ref);
+
+  else
+    this->toDel(ref);
+}
+
+void SGC::checkBarrier(RefPtr ptr)
+{
+  if (state != GCSNone && ptr->iscurmark(vm))
+    checkTrace(ptr);
 }
 
 bool Interns::stepsweep()
@@ -696,6 +709,7 @@ void Instruction::endwithpair(PairPtr p2)
     setpair(&p2p, p2);
 
     p1->cdr(&p2p);
+    GC(vm)->checkBarrier(p1);
   }
 }
 
@@ -717,6 +731,7 @@ void JumpToFix::fix(int label, PairPtr jmp)
     {
       FixJumpObj* ref = jumpobjref(pair->car());
       ref->fixJmp(label, jmp);
+      GC(vm)->checkBarrier(pair->car()->ref());
 
       pair = pairref(pair->cdr());
     }
@@ -1292,6 +1307,8 @@ PairPtr SCompiler::extractlabel(JumpToFix* jf, PairPtr expr)
     setpair(&val, inst);
     expr->cdr(&val);
 
+    GC(vm)->checkBarrier(expr);
+
     return expr;
   }
 }
@@ -1323,7 +1340,10 @@ void GSymTable::newkeyorupdate(SymPtr sym, ValueT* val)
     newkey(sym, val);
 
   else
+  {
     pair->cdr(val);
+    GC(vm)->checkBarrier(pair);
+  }
 }
 
 void GSymTable::insert(SymPtr sym, PairPtr tv)
@@ -1581,7 +1601,7 @@ void VM::eval(ValueT* out, PairPtr expr)
     break;
   }
   case CMD_SET_GLOBAL: {
-    setvarglobalptr(cmd)->set(regs, getgenv());
+    setvarglobalptr(cmd)->set(vm, regs, getgenv());
     break;
   }
   case CMD_IF_FALSE_JUMP: {
@@ -1593,7 +1613,7 @@ void VM::eval(ValueT* out, PairPtr expr)
     break;
   }
   case CMD_INIT_ARG: {
-    regs[rArgl] = regs[rVal];
+    setpair(&regs[rArgl], vm->list(&regs[rVal]));
     break;
   }
   case CMD_APPLY_PRIM: {
@@ -1622,7 +1642,7 @@ void VM::eval(ValueT* out, PairPtr expr)
 // advpc:
   if (!Sisnull(pc->cdr()))
   {
-    expr = pairref(pc->cdr());
+    pc = pairref(pc->cdr());
     goto loop;
   }
 }
@@ -1697,7 +1717,7 @@ void* VM::realloc(void* ptr, size_t osize, size_t nsize)
   getgc()->debt(debt + nsize - osize);
   debt = getgc()->debt();
 
-  Debug(Print("realloc mem(%u) -> %p old(%u) -> %p debt %ld\n", nsize, block, osize, ptr, debt));
+  Debug(Print("realloc mem(%u) -> %p old(%u) -> %p \n", nsize, block, osize, ptr));
 
   return block;
 }
@@ -1717,7 +1737,7 @@ void* VM::alloc(size_t size)
   getgc()->debt(debt + size);
   debt = getgc()->debt();
 
-  Debug(Print("alloc mem(%u) -> %p debt %ld\n", size, block, debt));
+  Debug(Print("alloc mem(%u) -> %p\n", size, block));
 
   return block;
 }
@@ -1748,6 +1768,7 @@ PairPtr VM::getonepairnor()
   if (pair == NULL)
     pair = new (alloc(sizeof(PairObj))) PairObj();
 
+  pair->gcnxt = NULL;
   return pair;
 }
 
@@ -2271,11 +2292,17 @@ void Lexer::readListT(ValueT* v)
       setpair(&tmpp, tmp);
 
       last->cdr(&tmpp);
+      GC(vm)->checkBarrier(last);
+
       last = tmp;
     }
   }
 
-  if (dot) last->cdr(sval);
+  if (dot)
+  {
+    last->cdr(sval);
+    GC(vm)->checkBarrier(last);
+  }
 }
 
 void Lexer::readValueT(ValueT* v)
