@@ -1463,6 +1463,92 @@ struct ConsArg : public RefObject {
   GetSize(ConsArg)
 };
 
+class Reader {
+public:
+  virtual ~Reader() {}
+
+  virtual char curCharAdv() = 0;
+  virtual char curChar() = 0;
+  virtual void advance() = 0;
+  virtual bool isEnd() = 0;
+};
+
+class ReaderFromInput : public Reader {
+public:
+  ReaderFromInput(VM* v, const char* input, int l)
+    :vm(v), len(l + 1) {
+    buf = (char*) vm->alloc(l + 1);
+    memcpy(buf, input, l);
+    buf[l] = 0;
+
+    index = 0;
+  }
+
+  ReaderFromInput(VM* v, const char* input)
+    :ReaderFromInput(v, input, strlen(input)){}
+
+  ~ReaderFromInput() {
+    if (buf != NULL)
+      vm->free(buf, len);
+    buf = NULL;
+    len = 0;
+  }
+
+  virtual char curCharAdv() { return buf[index++]; }
+  virtual char curChar() { return buf[index]; }
+  virtual void advance() { ++index; }
+  virtual bool isEnd() { return index >= len; }
+protected:
+  VM* vm;
+  char* buf;
+  int len;
+
+  int index;
+};
+
+class ReaderFromFile : public Reader {
+public:
+  ReaderFromFile(VM* v, const char* filename)
+    :vm(v) {
+      file = fopen(filename, "r");
+      if (file == NULL)
+        Error("error file %s", filename);
+
+      size = fread(buff, 1, sizeof(buff), file);
+  }
+
+  virtual char curCharAdv() {
+    if (index >= size) {
+      size = fread(buff, 1, sizeof(buff), file);
+      index = 0;
+    }
+    return buff[index++];
+  }
+  virtual char curChar() { return buff[index]; }
+  virtual void advance() {
+    index++;
+    if (index >= size) {
+      size = fread(buff, 1, sizeof(buff), file);
+      index = 0;
+    }
+  }
+  virtual bool isEnd() { return index >= size && feof(file); }
+
+  virtual ~ReaderFromFile() {
+    if (file != NULL)
+      fclose(file);
+    file = NULL;
+  }
+protected:
+  VM* vm;
+  
+  FILE* file;
+  char buff[32];
+
+  int size;
+  int index;
+};
+
 struct Lbuffer {
   static const int INIT_LEN = 128;
 
@@ -1497,11 +1583,12 @@ struct Lbuffer {
 
 class Lexer {
 public:
-  Lexer(VM* v, const String& in);
+  Lexer(VM* v, Reader* r):vm(v), reader(r), buff(v) {
+    aheadToken = dLex();
+  }
 
   void readOne(ValueT* v);
 protected:
-  bool isEnd() { return index >= input.size(); }
   int readNum();
   int readString();
   int readSymbol(char init);
@@ -1510,23 +1597,17 @@ protected:
   void match(int type);
   void readValueT(ValueT* v);
   void readListT(ValueT* v);
-  void init();
-
-  char curCharAdv() { return input[index++]; }
-  char curChar() { return input[index]; }
-  void advInput() { ++index; }
 
   void skipBlankComment();
   int dLex();
 protected:
   VM* vm;
 
-	int aheadToken;
   int readI;
   Lbuffer buff;
 
-	int index;
-	String input;
+  int aheadToken;
+  Reader* reader;
 };
 
 };

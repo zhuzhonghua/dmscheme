@@ -593,7 +593,7 @@ RefPtr ConstVal::getconst(const char* str, int n)
   SymPtr ptr = (SymPtr)constlst[Util::hash(str, n, vm->seed) % CTK_MAX];
   while (ptr != NULL)
   {
-    if (objstrl(ptr) == n && memcpy(objstr(ptr), str, n) == 0)
+    if (objstrl(ptr) == n && memcmp(objstr(ptr), str, n) == 0)
       return ptr;
 
     ptr = (SymPtr)ptr->gcnxt;
@@ -2041,20 +2041,6 @@ static const char* TokenType[] = {
 #define CASE_DIGIT case '0':case '1':case '2':case '3':case '4':case '5':case '6':case '7':case '8':case '9'
 #define CASE_BLANK case '\n':case ' ':case '\t':case '\r':case '\0'
 
-Lexer::Lexer(VM* v, const String& in)
-  :vm(v), buff(v)
-{
-  this->input = in;
-  this->index = 0;
-
-  init();
-}
-
-void Lexer::init()
-{
-  aheadToken = dLex();
-}
-
 void Lexer::match(int type)
 {
   Assert(type == aheadToken,
@@ -2069,27 +2055,27 @@ int Lexer::dLex()
 {
   skipBlankComment();
 
-	if (isEnd())
+	if (reader->isEnd())
 		return TOKEN_END;
 
   int token = TOKEN_UNKNOWN;
 
-  switch(curChar()) {
+  switch(reader->curChar()) {
   case '\'':
 		token = TOKEN_QUOTE;
-    advInput();
+    reader->advance();
     break;
   case '`':
 		token = TOKEN_QUASIQUOTE;
-    advInput();
+    reader->advance();
 		break;
   case ',':
     token = TOKEN_UNQUOTE;
-    advInput();
-    if (!isEnd() && '@' == curChar())
+    reader->advance();
+    if (!reader->isEnd() && '@' == reader->curChar())
     {
       token = TOKEN_UNQUOTE_SPLICING;
-      advInput();
+      reader->advance();
     }
     break;
   case '"':
@@ -2097,26 +2083,26 @@ int Lexer::dLex()
     break;
   case '(':
 		token = TOKEN_LEFT_PAREN;
-    advInput();
+    reader->advance();
     break;
 	case ')':
 		token = TOKEN_RIGHT_PAREN;
-    advInput();
+    reader->advance();
     break;
   case '[':
 		token = TOKEN_LEFT_SQUARE_PAREN;
-    advInput();
+    reader->advance();
     break;
 	case ']':
 		token = TOKEN_RIGHT_SQUARE_PAREN;
-    advInput();
+    reader->advance();
     break;
   case '.':
     token = TOKEN_DOT;
-    advInput();
-    if (!isEnd())
+    reader->advance();
+    if (!reader->isEnd())
     {
-      switch(curChar()){
+      switch(reader->curChar()){
       CASE_BLANK:break;
       CASE_DIGIT:
         // TODO: readfloat
@@ -2141,16 +2127,16 @@ int Lexer::dLex()
 void Lexer::skipBlankComment()
 {
  loop:
-  if(isEnd())
+  if(reader->isEnd())
     return;
 
-  switch(curChar()) {
-  CASE_BLANK: advInput(); goto loop;
+  switch(reader->curChar()) {
+  CASE_BLANK: reader->advance(); goto loop;
   case ';':
-    while(!isEnd() && curChar() != '\n')
-      advInput();
+    while(!reader->isEnd() && reader->curChar() != '\n')
+      reader->advance();
 
-    advInput();
+    reader->advance();
     goto loop;
   default:
     break;
@@ -2164,16 +2150,16 @@ int Lexer::readSymbol(char init)
   if (init) buff.put(init);
 
  loop:
-  if(!isEnd())
+  if(!reader->isEnd())
   {
-		char c = curChar();
+		char c = reader->curChar();
     switch(c){
     CASE_BLANK:
     case ')':
       break;
 		default:
       buff.put(c);
-      advInput();
+      reader->advance();
       goto loop;
 		}
 	}
@@ -2190,12 +2176,12 @@ int Lexer::readString()
 {
   buff.reset();
 
-  advInput();
+  reader->advance();
 
   char c;
-  while(!isEnd())
+  while(!reader->isEnd())
   {
-    c = curCharAdv();
+    c = reader->curCharAdv();
     if (c == '\"')
       break;
     buff.put(c);
@@ -2214,9 +2200,9 @@ int Lexer::readNum()
 	int temp = 0;
 
  loop:
-  if(!isEnd())
+  if(!reader->isEnd())
   {
-    char c = curChar();
+    char c = reader->curChar();
     switch(c){
     case ' ':
     case '\t':
@@ -2228,7 +2214,7 @@ int Lexer::readNum()
     default:
       // TODO: illegal char
       num[temp++] = c;
-      advInput();
+      reader->advance();
       goto loop;
     }
   }

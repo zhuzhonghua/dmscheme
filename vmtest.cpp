@@ -4,7 +4,8 @@ using namespace Scheme;
 
 void test(VM* vm, const char* stat)
 {
-  Lexer lex(vm, stat);
+  ReaderFromInput reader(vm, stat);
+  Lexer lex(vm, &reader);
 
   Sreservevt(expr);
   lex.readOne(expr);
