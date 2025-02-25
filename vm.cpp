@@ -1273,6 +1273,17 @@ void SCompiler::compile(InstPtr inst, int targetr, VarsPtr vars, JumpToFix* jf, 
   }
 }
 
+void SCompiler::printcompilecode(ValueT* val)
+{
+  JumpToFix jf(vm, labelmax);
+  Sinstvar(inst);
+  compile(&inst, rVal, NULL, &jf, val, Snext);
+
+  printf("\n==Compiled Code==\n\n");
+  printir(inst.expr);
+  printf("\n\n==Compiled Code End==\n\n");
+}
+
 PairPtr SCompiler::compile(ValueT* val)
 {
   JumpToFix jf(vm, labelmax);
@@ -1310,6 +1321,234 @@ PairPtr SCompiler::extractlabel(JumpToFix* jf, PairPtr expr)
     GC(vm)->checkBarrier(expr);
 
     return expr;
+  }
+}
+
+static const char* getregname(byte reg)
+{
+  switch(reg) {
+  case rEnv: return "rEnv";
+  case rProc: return "rProc";
+  case rVal: return "rVal";
+  case rArgl: return "rArgl";
+  case rContinue: return "rContinue";
+  default: Error("unknown reg %x", reg);
+  }
+}
+
+void SCompiler::printvt(const char* pre, ValueT* v)
+{
+  printf("%s", pre);
+  switch(v->t) {
+  case VT_REF_STR:
+    printf("\"%s\"", strref(v)->str);
+    break;
+  case VT_REF_SYM:
+    printf("%s", symref(v)->str);
+    break;
+  case VT_NUM_INTEGER:
+    printf("%d", numi(v));
+    break;
+  case VT_LABEL:
+    printf("%d", labeli(v));
+    break;
+  default:
+    Error("unknown type %x", v->t);
+    break;
+  }
+}
+
+void SCompiler::printregs(const char* pre, byte regs)
+{
+  printf("%s", pre);
+  for (int i = 0; i < rMax; i++)
+  {
+    if (regs & regv(i))
+      printf("%s(%x) ", getregname(i), i);
+  }
+}
+
+void SCompiler::printreg(const char* pre, byte reg)
+{
+  printf("%s[%s(%x)]", pre, getregname(reg), reg);
+}
+
+void SCompiler::printir0(ExeCmd* cmd)
+{
+  switch(cmd->getcmd()) {
+  case CMD_ASSIGN: {
+    Assign* ass = assignptr(cmd);
+    printf("ASSIGN");
+    printreg(" ", ass->reg);
+    printvt(" ", ass->getval());
+    break;
+  }
+  case CMD_LAMBDA: {
+    LambdaPtr lambda = lambdaptr(cmd);
+    printf("LAMBDA %s(%x)", getregname(lambda->targetr), lambda->targetr);
+    printf("entry[%d]", labeli(lambda->getentry()));
+  }
+  case CMD_ASSIGN_REG: {
+    AssignReg* ar = assignregptr(cmd);
+    printf("ASSIGNREG");
+    printreg(" ", ar->dst);
+    printreg(" ", ar->src);
+    break;
+  }
+  case CMD_JUMP_PROC: {
+    printf("JUMPPROC");
+    break;
+  }
+  case CMD_JUMP_CONTINUE: {
+    printf("JUMPCONTINUE");
+    break;
+  }
+  case CMD_JUMP_LABEL: {
+    printf("JUMPLABEL");
+    printf(" %d", labeli(jumplabelptr(cmd)->getentry()));
+    break;
+  }
+  case CMD_SAVE_REG: {
+    printf("SAVEREG");
+    printregs(" ", saveregptr(cmd)->reg);
+    break;
+  }
+  case CMD_RESTORE_REG: {
+    printf("RESTOREREG");
+    printregs(" ", restoreregptr(cmd)->reg);
+    break;
+  }
+  case CMD_REF_LOCAL: {
+    printf("REFLOCAL");
+    RefLocalVar* ref = reflocalptr(cmd);
+    printreg(" ", ref->reg);
+    printf("offset[%d]", ref->offset);
+    break;
+  }
+  case CMD_REF_UP: {
+    printf("REFUP");
+    RefUpVar* ref = refupptr(cmd);
+    printreg(" ", ref->reg);
+    printf("outer offset[%d]", ref->oidx);
+    break;
+  }
+  case CMD_REF_GLOBAL: {
+    printf("REFGLOBAL");
+    RefGlobalVar* ref = refglobalptr(cmd);
+    printreg(" ", ref->reg);
+    printf(" Var[%s]", objstr(ref->var));
+    break;
+  }
+  case CMD_DEF_GLOBAL: {
+    printf("DEFGLOBAL");
+    DefGlobalVar* def = defglobalptr(cmd);
+    printf(" %s", objstr(def->var));
+    printreg(" ", rVal);
+    break;
+  }
+  case CMD_DEF_LOCAL: {
+    printf("DEFLOCAL");
+    DefLocalVar* def = deflocalptr(cmd);
+    printf(" offset[%d]", def->offset);
+    printreg(" ", rVal);
+    break;
+  }
+  case CMD_SET_LOCAL: {
+    printf("SETLOCAL");
+    SetVarLocal* set = setvarlocalptr(cmd);
+    printf(" offset[%d]", set->offset);
+    printreg(" ", rVal);
+    break;
+  }
+  case CMD_SET_UP: {
+    printf("SETUP");
+    SetVarUp* set = setvarupptr(cmd);
+    printf(" upoffset[%d]", set->offset);
+    printreg(" ", rVal);
+    break;
+  }
+  case CMD_SET_GLOBAL: {
+    printf("SETGLOBAL");
+    SetVarGlobal* set = setvarglobalptr(cmd);
+    printf(" Var[%s]", objstr(set->var));
+    printreg(" ", rVal);
+    break;
+  }
+  case CMD_IF_FALSE_JUMP: {
+    printf("IFFALSEJUMP");
+    IfFalseJump* jmp = iffalsejumpptr(cmd);
+    printf("%d", labeli(&(jmp->entry)));
+    break;
+  }
+  case CMD_INIT_ARG: {
+    printf("INITARG");
+    break;
+  }
+  case CMD_APPLY_PRIM: {
+    printf("APPLYPRIM");
+    printreg(" ", applyprimptr(cmd)->targetr);
+    break;
+  }
+  case CMD_CALL_APP: {
+    printf("CALLAPP");
+    CallApp* ca = callappptr(cmd);
+    printf(" Proc(%d) Prim(%d)", labeli(&(ca->lproc)), labeli(&(ca->lprim)));
+    break;
+  }
+  case CMD_CONS_ARG: {
+    printf("CONSARG");
+    break;
+  }
+  default:
+    Error("unknown cmd %d", cmd->getcmd());
+  }
+}
+
+void SCompiler::printir(PairPtr expr)
+{
+  int maxlabel = 0;
+  PairPtr oldexpr = expr;
+  while (expr)
+  {
+    ValueT* vcmd = expr->car();
+    if (islabel(vcmd))
+    {
+      int label = labeli(vcmd);
+      if (label > maxlabel)
+        maxlabel = label;
+    }
+
+    expr = pairref(expr->cdr());
+  }
+
+  int nspace = 0;
+  while (maxlabel > 0)
+  {
+    nspace++;
+    maxlabel /= 10;
+  }
+
+  ValueT* lastv = NULL;
+  expr = oldexpr;
+  while (expr)
+  {
+    ValueT* vcmd = expr->car();
+    if (islabel(vcmd))
+    {
+      printf("\n");
+      printf("%*d", nspace, labeli(vcmd));
+      printf(": ");
+    }
+    else
+    {
+      if (!lastv || !islabel(lastv))
+        printf("\n%*s  ", nspace, " ");
+
+      printir0(execmdref(vcmd));
+    }
+
+    lastv = vcmd;
+    expr = pairref(expr->cdr());
   }
 }
 

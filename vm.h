@@ -92,9 +92,12 @@ enum ValueTEnum {
 
 /* SymObj Or StrObj */
 #define issym(VT) (VT->t == VT_REF_SYM)
-#define symref(VT) (SymPtr)(VT->ref())
+#define symref(VT) ((SymPtr)(VT->ref()))
 #define Ssymref(VT) checkexp(issym(VT), symref(VT), SymPtr)
 #define setsym(VT, e) ((VT)->t = VT_REF_SYM, (VT)->v.p = (e))
+
+#define strref(VT) ((StrPtr)(VT->ref()))
+#define isstr(VT) (VT->t == VT_REF_STR)
 #define setstr(VT, e) ((VT)->t = VT_REF_STR, (VT)->v.p = (e))
 
 /* Pair */
@@ -735,6 +738,7 @@ struct JumpToFix {
 class SCompiler {
 public:
   PairPtr compile(ValueT* val);
+  void printcompilecode(ValueT* val);
   void compile(InstPtr inst, int targetr, VarsPtr vars, JumpToFix* jf, ValueT* val, ValueT* link);
   void compilesym(InstPtr inst, int targetr, VarsPtr vars, JumpToFix* jf, SymPtr sym, ValueT* link);
   void compilepair(InstPtr inst, int targetr, VarsPtr vars, JumpToFix* jf, PairPtr val, ValueT* link);
@@ -753,8 +757,14 @@ public:
   void makeapp(InstPtr inst, int targetr, VarsPtr vars, JumpToFix* jf, ValueT* type, ValueT* cdrval, ValueT* link);
   void constructarg(InstPtr inst, VarsPtr vars, JumpToFix* jf, ValueT* cdrval);
 
-protected:
+  void printir(PairPtr expr);
   PairPtr extractlabel(JumpToFix* jf, PairPtr expr);
+protected:
+  void printir0(ExeCmd* cmd);
+  void printreg(const char* pre, byte reg);
+  void printregs(const char* pre, byte regs);
+  void printvt(const char* pre, ValueT* v);
+protected:
   void constructarg0(InstPtr inst, InstArr* iarr, int idx);
 
 protected:
@@ -1158,6 +1168,8 @@ struct Assign : public RefObject {
     regs[reg] = val;
   }
 
+  ValueT* getval() { return &val; }
+
   Visit1(val)
   GetSize(Assign)
 
@@ -1212,6 +1224,8 @@ struct JumpLabel : public RefObject {
     Assert(islabel(&entry) && labeli(&entry) == label, "label error");
     setpair(&entry, dest);
   }
+
+  ValueT* getentry() { return &entry; }
 
   Visit1(entry)
   GetSize(JumpLabel)
@@ -1541,7 +1555,7 @@ public:
   }
 protected:
   VM* vm;
-  
+
   FILE* file;
   char buff[32];
 
